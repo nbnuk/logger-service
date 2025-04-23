@@ -26,6 +26,19 @@ class UrlMappingsSpec extends Specification implements UrlMappingsUnitTest<UrlMa
         // that results in an error "junit.framework.AssertionFailedError: Url mapping assertion failed, 'logger' is not a valid controller"
         // despite the same syntax working for the assertReverseUrlMapping method.
 
+        // New tests for updated mappings
+        assertUrlMapping(controller: "logger", action: "indexNbn", uri: "/")
+        assertUrlMapping(controller: "logger", action: "getReasonBreakdown", uri: "/service/reasonBreakdown")
+        assertUrlMapping(controller: "logger", action: "getSourceBreakdown", uri: "/service/sourceBreakdown")
+        assertUrlMapping(controller: "logger", action: "getEmailBreakdown", uri: "/service/emailBreakdown")
+        assertUrlMapping(controller: "logger", action: "getReasonBreakdownByMonth", uri: "/service/reasonBreakdownMonthly")
+
+        // Verify old CSV mappings are gone (should not resolve)
+        assertNoUrlMapping(uri: "/service/reasonBreakdownCSV")
+        assertNoUrlMapping(uri: "/service/sourceBreakdownCSV")
+        assertNoUrlMapping(uri: "/service/emailBreakdownCSV")
+        assertNoUrlMapping(uri: "/service/reasonBreakdownByMonthCSV")
+
 //        assertForwardUrlMapping("/service/logger/reasons", controller: "logger", action: "getReasonTypes")
 //        assertForwardUrlMapping("/service/logger/sources", controller: "logger", action: "getSourceTypes")
 //

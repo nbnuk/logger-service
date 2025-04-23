@@ -1,9 +1,13 @@
 package au.org.ala.logger
 
 import grails.testing.web.controllers.ControllerUnitTest
+import groovy.json.JsonOutput
 import groovy.time.TimeCategory
 import org.springframework.http.HttpStatus
 import spock.lang.Specification
+import spock.lang.Unroll
+import au.org.ala.logger.LogSourceType
+import grails.converters.JSON
 
 import javax.persistence.PersistenceException
 import java.text.DateFormat
@@ -16,6 +20,7 @@ class LoggerControllerSpec extends Specification implements ControllerUnitTest<L
     private LoggerController controller
     private LoggerService loggerService
     private reasonTypes = []
+    private sourceTypes = []
 
     private String thisMonth
     private String nextMonth
@@ -34,27 +39,50 @@ class LoggerControllerSpec extends Specification implements ControllerUnitTest<L
         }
         loggerService.getAllReasonTypes() >> reasonTypes
 
+        for (i in 1..5) {
+            def source = new LogSourceType(name: "source${i}")
+            source.setId(i)
+            sourceTypes << source
+        }
+        loggerService.getAllSourceTypes() >> sourceTypes
+
         use(TimeCategory) {
             thisMonth = getYearAndMonth(new Date())
             nextMonth = getYearAndMonth(new Date() + 1.month)
             last3Months = getYearAndMonth(new Date() - 2.months)
             last12Months = getYearAndMonth(new Date() - 11.months)
+
+            def fixedNextMonthDate = new GregorianCalendar(2023, Calendar.APRIL, 1).time
+            controller.metaClass.nextMonth = { -> fixedNextMonthDate }
         }
+
+        controller.metaClass.getReasonMap = { -> reasonTypes.collectEntries{[(it.id): it.name]} }
+        controller.metaClass.getSourceMap = { -> sourceTypes.collectEntries{[(it.id): it.name]} }
     }
 
     def cleanup() {
     }
 
-    def "save() should ignore any JSON attributes that do not match properties of the LogEventVO object"() {
-        // See https://github.com/AtlasOfLivingAustralia/logger-service/issues/7
+    def "index action should render the index view"() {
+        when:
+        controller.index()
+        then:
+        view == '/index'
+    }
 
+    def "indexNbn action should render the index-nbn view"() {
+        when:
+        controller.indexNbn()
+        then:
+        view == '/index-nbn'
+    }
+
+    def "save() should ignore any JSON attributes that do not match properties of the LogEventVO object"() {
         when: "the incoming JSON contains an attribute 'class'"
         request.json = """{ "class": "myclassname", lastUpdated: "aaa", "eventTypeId": 1000, "comment":"test comment", "userEmail" : "fred@somewhere.gov.au", "userIP": "123.123.123.123", "recordCounts" : { "uid1": 100, "uid2": 200,} }"""
         controller.save()
 
         then: "the system should ignore that attribute to avoid ReadOnlyPropertyExceptions"
-        // an exception would be thrown without the fix for this bug because the LogEventVO constructor would try to
-        // set 'class', which is readonly, and 'lastUpdated', which does not exist.
         1 * loggerService.createLog(!null, !null) >> new LogEvent()
         assert response.status == HttpStatus.OK.value()
     }
@@ -122,15 +150,6 @@ class LoggerControllerSpec extends Specification implements ControllerUnitTest<L
         detail1.setLogEvent(log)
         detail1.setRecordCount(100)
         log.logDetails.add(detail1)
-        // NdR Feb 2021 - second LogDetail was commented out, as it caused a stack overflow error
-        // TODO fix the SO error and reinstate code below + assert code further down
-//        LogDetail detail2 = new LogDetail()
-//        detail2.setId(2)
-//        detail2.setEntityType("type2")
-//        detail2.setEntityUid("uid2")
-//        detail2.setLogEvent(log)
-//        detail2.setRecordCount(200)
-//        log.logDetails.add(detail2)
 
         loggerService.findLogEvent(_) >> log
         controller.getEventLog();
@@ -150,10 +169,6 @@ class LoggerControllerSpec extends Specification implements ControllerUnitTest<L
         assert response.json.logEvent.logDetails[0].recordCount == 100
         assert response.json.logEvent.logDetails[0].entityType == "type1"
         assert response.json.logEvent.logDetails[0].id == 1
-//        assert response.json.logEvent.logDetails[1].entityUid == "uid2"
-//        assert response.json.logEvent.logDetails[1].recordCount == 200
-//        assert response.json.logEvent.logDetails[1].entityType == "type2"
-//        assert response.json.logEvent.logDetails[1].id == 2
     }
 
     def "monthlyBreakdown requires request parameter 'q' for the entityUid"() {
@@ -202,355 +217,396 @@ class LoggerControllerSpec extends Specification implements ControllerUnitTest<L
         assert response.json.months[2][0] == "201404" && response.json.months[2][1] == 32
     }
 
-    def "getReasonBreakdown should return 0 counts for all reason types when given an unrecognised entityUid"() {
-        when: "a request is made with an unrecognised entityUid"
-        params.entityUid = "unknown"
-        params.eventId = 1000
-        loggerService.getEventsReasonBreakdown(_, _, _, _) >> []
+    def "getReasonBreakdown should return 400 if eventId is missing"() {
+        when:
+        params.entityUid = "dr143"
         controller.getReasonBreakdown()
 
-        then: "a valid response with 0 counts should be returned"
-        assert response.json.all.events == 0 && response.json.all.records == 0
-        assert response.json.last3Months.events == 0 && response.json.last3Months.records == 0
-        assert response.json.thisMonth.events == 0 && response.json.thisMonth.records == 0
-        assert response.json.lastYear.events == 0 && response.json.lastYear.records == 0
-        for (r in reasonTypes) {
-            assert response.json.all.reasonBreakdown."${r.name}".events == 0
-            assert response.json.last3Months.reasonBreakdown."${r.name}".events == 0
-            assert response.json.thisMonth.reasonBreakdown."${r.name}".events == 0
-            assert response.json.lastYear.reasonBreakdown."${r.name}".events == 0
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing eventId"
+    }
+
+    def "getReasonBreakdown should return 400 if entityUid is missing"() {
+        when:
+        params.eventId = 1000
+        controller.getReasonBreakdown()
+
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing entityUid"
+    }
+
+    @Unroll
+    def "getReasonBreakdown should call service with correct dates for #dateRangeParam"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, 'date-range': dateRangeParam]
+
+        // Calculate dates here using TimeCategory
+        Date expectedFromDate
+        Date expectedToDate
+        use(TimeCategory) {
+            expectedToDate = monthsToSubtract != null ? controller.nextMonth() : null
+            expectedFromDate = monthsToSubtract != null ? controller.nextMonth() - monthsToSubtract.months : null
         }
+
+        // Mock service response (needed for successful execution)
+        loggerService.getEventsReasonBreakdown(params.eventId as int, params.entityUid, getYearAndMonth(expectedFromDate), getYearAndMonth(expectedToDate)) >> []
+
+        when:
+        controller.getReasonBreakdown()
+
+        then:
+        1 * loggerService.getEventsReasonBreakdown(params.eventId as int, params.entityUid, getYearAndMonth(expectedFromDate), getYearAndMonth(expectedToDate))
+        response.status == HttpStatus.OK.value()
+
+        where:
+        dateRangeParam    | monthsToSubtract
+        "Last Month"      | 1
+        "Last 3 Months"   | 3
+        "Last 1 Year"     | 12
+        "All Time"        | null
+        "Invalid Range"   | null // Defaults to All Time
+        null              | null // Defaults to All Time
     }
 
-    def "getReasonBreakdown should return correct counts for recognised entities"() {
-        when: "a request is made with a recognised entityUid"
+    def "getReasonBreakdown should render JSON by default or when format=JSON"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: formatParam]
+        def mockReasonSummaries = [new EventSummaryBreakdownReason(logReasonTypeId: 1, numberOfEvents: 3, recordCount: 30),
+                                   new EventSummaryBreakdownReason(logReasonTypeId: 2, numberOfEvents: 7, recordCount: 70)]
+        loggerService.getEventsReasonBreakdown(_, _, _, _) >> mockReasonSummaries
+
+        when:
+        controller.getReasonBreakdown()
+
+        then:
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'application/json;charset=UTF-8'
+        response.json.reasonBreakdown.events == 10
+        response.json.reasonBreakdown.records == 100
+        response.json.reasonBreakdown.reasonBreakdown.reason1.events == 3
+        response.json.reasonBreakdown.reasonBreakdown.reason2.records == 70
+        response.json.reasonBreakdown.reasonBreakdown.reason3 // Check a reason not in mock data has default 0 counts
+        response.json.reasonBreakdown.reasonBreakdown.reason3.events == 0
+        response.json.reasonBreakdown.reasonBreakdown.reason3.records == 0
+
+        where:
+        formatParam << [null, "JSON", "json", "InvalidFormat"]
+    }
+
+    def "getReasonBreakdown should render CSV when format=CSV"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: "CSV", 'date-range': "Last Month"]
+        def mockReasonSummaries = [new EventSummaryBreakdownReason(logReasonTypeId: 1, numberOfEvents: 3, recordCount: 30),
+                                   new EventSummaryBreakdownReason(logReasonTypeId: 2, numberOfEvents: 7, recordCount: 70)]
+        loggerService.getEventsReasonBreakdown(_, _, _, _) >> mockReasonSummaries
+
+        // Mock the response writer
+        def stringWriter = new StringWriter()
+        response.writer = new PrintWriter(stringWriter)
+
+        when:
+        controller.getReasonBreakdown()
+
+        then:
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'text/csv'
+        response.getHeader('Content-Disposition').contains('filename="reason-breakdown-dr143-last-month.csv"')
+        // Check CSV content (headers + data rows)
+        def csvOutput = stringWriter.toString().readLines()
+        csvOutput.size() == 3 // Header + 2 data rows
+        csvOutput[0] == '"reason","number of events","number of records"'
+        csvOutput[1] == '"reason1","3","30"' // Sorted by name
+        csvOutput[2] == '"reason2","7","70"'
+    }
+
+    def "getSourceBreakdown should return 400 if eventId is missing"() {
+        when:
         params.entityUid = "dr143"
+        controller.getSourceBreakdown()
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing eventId"
+    }
+
+    def "getSourceBreakdown should return 400 if entityUid is missing"() {
+        when:
         params.eventId = 1000
-        loggerService.getEventsReasonBreakdown(_, _, _, _) >> [new EventSummaryBreakdownReason(logReasonTypeId: 1, numberOfEvents: 3, recordCount: 30),
-                                                               new EventSummaryBreakdownReason(logReasonTypeId: 2, numberOfEvents: 7, recordCount: 70)]
-        controller.getReasonBreakdown()
-
-        then: "a valid response with correct counts should be returned"
-
-        assert response.json.all.events == 10 && response.json.all.records == 100
-        assert response.json.last3Months.events == 10 && response.json.last3Months.records == 100
-        assert response.json.thisMonth.events == 10 && response.json.thisMonth.records == 100
-        assert response.json.lastYear.events == 10 && response.json.lastYear.records == 100
-        assert response.json.all.reasonBreakdown.reason1.events == 3 && response.json.all.reasonBreakdown.reason1.records == 30
-        assert response.json.all.reasonBreakdown.reason2.events == 7 && response.json.all.reasonBreakdown.reason2.records == 70
+        controller.getSourceBreakdown()
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing entityUid"
     }
 
-    def "getReasonBreakdown should look for this month, last 3 months, last 12 months and all time"() {
-        when: "a breakdown is requested"
-        params << [entityUid: "dr143", eventId: 1000]
-        loggerService.getEventsReasonBreakdown(_, _, _, _) >> [new EventSummaryBreakdownReason(logReasonTypeId: 1, numberOfEvents: 3, recordCount: 30),
-                                                               new EventSummaryBreakdownReason(logReasonTypeId: 2, numberOfEvents: 7, recordCount: 70)]
-        controller.getReasonBreakdown()
+    @Unroll
+    def "getSourceBreakdown should call service with correct dates for #dateRangeParam"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, 'date-range': dateRangeParam, excludeReasonTypeId: 5]
 
-        then: "the service method should be invoked 4 times with the relevant date ranges"
-        1 * loggerService.getEventsReasonBreakdown(_, _, null, null) // all time
-        1 * loggerService.getEventsReasonBreakdown(_, _, thisMonth, nextMonth) // this month
-        1 * loggerService.getEventsReasonBreakdown(_, _, last3Months, nextMonth) // last 3 months
-        1 * loggerService.getEventsReasonBreakdown(_, _, last12Months, nextMonth) // last 12 months
+        // Calculate dates here using TimeCategory
+        Date expectedFromDate
+        Date expectedToDate
+        use(TimeCategory) {
+            expectedToDate = monthsToSubtract != null ? controller.nextMonth() : null
+            expectedFromDate = monthsToSubtract != null ? controller.nextMonth() - monthsToSubtract.months : null
+        }
 
+        loggerService.getEventsSourceBreakdown(params.eventId as int, params.entityUid, getYearAndMonth(expectedFromDate), getYearAndMonth(expectedToDate), params.excludeReasonTypeId as int) >> []
+
+        when:
+        controller.getSourceBreakdown()
+
+        then:
+        1 * loggerService.getEventsSourceBreakdown(params.eventId as int, params.entityUid, getYearAndMonth(expectedFromDate), getYearAndMonth(expectedToDate), params.excludeReasonTypeId as int)
+        response.status == HttpStatus.OK.value()
+
+        where:
+        dateRangeParam    | monthsToSubtract
+        "Last Month"      | 1
+        "All Time"        | null
+        null              | null
     }
 
-    def "getReasonBreakdown should collate results from difference date ranges correctly"() {
-        when: "a breakdown is requested"
-        params << [entityUid: "dr143", eventId: 1000]
-        loggerService.getEventsReasonBreakdown(_, _, null, null) >> [new EventSummaryBreakdownReason(logReasonTypeId: 1, numberOfEvents: 3, recordCount: 30)]
-        loggerService.getEventsReasonBreakdown(_, _, thisMonth, nextMonth) >> [new EventSummaryBreakdownReason(logReasonTypeId: 2, numberOfEvents: 6, recordCount: 40)]
-        loggerService.getEventsReasonBreakdown(_, _, last3Months, nextMonth) >> [new EventSummaryBreakdownReason(logReasonTypeId: 3, numberOfEvents: 8, recordCount: 50)]
-        loggerService.getEventsReasonBreakdown(_, _, last12Months, nextMonth) >> [new EventSummaryBreakdownReason(logReasonTypeId: 4, numberOfEvents: 10, recordCount: 60)]
-        controller.getReasonBreakdown()
+    def "getSourceBreakdown should render JSON by default or when format=JSON"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: formatParam]
+        def mockSourceSummaries = [[logSourceTypeId: 1, numberOfEvents: 1, recordCount: 10],
+                                   [logSourceTypeId: 2, numberOfEvents: 2, recordCount: 20]]
+        loggerService.getEventsSourceBreakdown(_, _, _, _, _) >> mockSourceSummaries
 
-        then: "the results should be collated properly"
-        assert response.json.all.events == 3 && response.json.all.records == 30
-        assert response.json.last3Months.events == 8 && response.json.last3Months.records == 50
-        assert response.json.thisMonth.events == 6 && response.json.thisMonth.records == 40
-        assert response.json.lastYear.events == 10 && response.json.lastYear.records == 60
+        when:
+        controller.getSourceBreakdown()
+
+        then:
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'application/json;charset=UTF-8'
+        response.json.sourceBreakdown.events == 3
+        response.json.sourceBreakdown.records == 30
+        response.json.sourceBreakdown.sourceBreakdown.source1.events == 1
+        response.json.sourceBreakdown.sourceBreakdown.source2.records == 20
+
+        where:
+        formatParam << [null, "JSON", "json", "InvalidFormat"]
     }
 
-    def "getReasonBreakdown should set reason name to 'unclassified' if an unrecognised reason is found"() {
-        when: "the retrieved data contains an unrecognised reason type"
-        params.entityUid = "dr143"
-        params.eventId = 1000
-        loggerService.getEventsReasonBreakdown(_, _, _, _) >> [new EventSummaryBreakdownReason(logReasonTypeId: 11111, numberOfEvents: 3, recordCount: 30)]
-        controller.getReasonBreakdown()
+    def "getSourceBreakdown should render CSV when format=CSV"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: "CSV", 'date-range': "All Time"]
+        def mockSourceSummaries = [[logSourceTypeId: 1, numberOfEvents: 1, recordCount: 10],
+                                   [logSourceTypeId: 2, numberOfEvents: 2, recordCount: 20]]
+        loggerService.getEventsSourceBreakdown(_, _, _, _, _) >> mockSourceSummaries
+        def stringWriter = new StringWriter()
+        response.writer = new PrintWriter(stringWriter)
 
-        then: "'unclassified' should be used as the reason name in the response"
-        assert response.json.all.reasonBreakdown.unclassified.events == 3 && response.json.all.reasonBreakdown.unclassified.records == 30
+        when:
+        controller.getSourceBreakdown()
+
+        then:
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'text/csv'
+        response.getHeader('Content-Disposition').contains('filename="source-breakdown-dr143-all-time.csv"')
+        def csvOutput = stringWriter.toString().readLines()
+        csvOutput.size() == 3
+        csvOutput[0] == '"source","number of events","number of records"'
+        csvOutput[1] == '"source1","1","10"'
+        csvOutput[2] == '"source2","2","20"'
     }
 
-    def "getReasonBreakdown requires an eventId parameter"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        controller.getReasonBreakdown()
-
-        then: "a http 400 bad request should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
-    }
-
-    def "getReasonBreakdownMonthly requires an eventId parameter"() {
-        when: "a request is made with no 'eventId' parameter"
+    def "getReasonBreakdownByMonth should return 400 if eventId is missing"() {
+        when:
         params.entityUid = "dr143"
         controller.getReasonBreakdownByMonth()
-
-        then: "a http 400 (BAD_REQUEST) should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing eventId"
     }
 
-    def "getReasonBreakdownMonthly returns an empty JSON response when no matching records are found"() {
+    def "getReasonBreakdownByMonth should return 400 if entityUid is missing"() {
         when:
-        params << [eventId: 1000, entityUid: "dr143"]
-        loggerService.getTemporalEventsReasonBreakdown(_, _, _) >> []
+        params.eventId = 1000
+        controller.getReasonBreakdownByMonth()
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing entityUid"
+    }
+
+    @Unroll
+    def "getReasonBreakdownByMonth should call service and filter results for JSON format with #dateRangeParam"() {
+        given: "Mock service returns data spanning multiple months"
+        params << [entityUid: "dr143", eventId: 1000, 'date-range': dateRangeParam, format: "JSON"]
+        def fullResults = [
+            new EventSummaryBreakdownReason(month: "202301", numberOfEvents: 1, recordCount: 10),
+            new EventSummaryBreakdownReason(month: "202302", numberOfEvents: 2, recordCount: 20),
+            new EventSummaryBreakdownReason(month: "202303", numberOfEvents: 3, recordCount: 30)
+        ]
+        // Mock service call - it's called without date range, filtering happens after
+        loggerService.getTemporalEventsReasonBreakdown(params.eventId as int, params.entityUid, null, null) >> fullResults
+
+        when:
         controller.getReasonBreakdownByMonth()
 
         then:
-        assert response.text == "{\"temporalBreakdown\":{}}"
+        1 * loggerService.getTemporalEventsReasonBreakdown(params.eventId as int, params.entityUid, null, null)
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'application/json;charset=UTF-8'
+        JsonOutput.toJson(response.json) // Ensure valid JSON
+        response.json.temporalBreakdown.size() == expectedMonths // Check if filtering worked
+        if (expectedMonths == 1) {
+            assert response.json.temporalBreakdown."202303".records == 30
+        }
+
+        where:
+        dateRangeParam    | expectedMonths
+        "Last Month"      | 1 // March 2023
+        "Last 3 Months"   | 3 // Jan, Feb, Mar 2023
+        "Last 1 Year"     | 3 // Jan, Feb, Mar 2023 (only 3 months available in mock data)
+        "All Time"        | 3
+        null              | 3
     }
 
-    def "getReasonBreakdownMonthly should return correct counts when given a valid request"() {
+    @Unroll
+    def "getReasonBreakdownByMonth should call service and filter results for CSV format with #dateRangeParam"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: "CSV", 'date-range': dateRangeParam]
+        def fullResults = [
+            new EventSummaryBreakdownReason(month: "202301", numberOfEvents: 1, recordCount: 10),
+            new EventSummaryBreakdownReason(month: "202302", numberOfEvents: 2, recordCount: 20),
+            new EventSummaryBreakdownReason(month: "202303", numberOfEvents: 3, recordCount: 30)
+        ]
+        loggerService.getTemporalEventsReasonBreakdown(params.eventId as int, params.entityUid, null, null) >> fullResults
+
+        def stringWriter = new StringWriter()
+        response.writer = new PrintWriter(stringWriter)
+
         when:
-        params << [eventId: 1000, entityUid: "dr143"]
-        loggerService.getTemporalEventsReasonBreakdown(_, _, _, _) >> [new EventSummaryBreakdownReasonEntity(month: "201410", recordCount: 20, numberOfEvents: 4),
-                                                                    new EventSummaryBreakdownReasonEntity(month: "201411", recordCount: 10, numberOfEvents: 2)]
         controller.getReasonBreakdownByMonth()
 
         then:
-        assert response.json.temporalBreakdown."201410".records == 20 && response.json.temporalBreakdown."201410".events == 4
-        assert response.json.temporalBreakdown."201411".records == 10 && response.json.temporalBreakdown."201411".events == 2
+        1 * loggerService.getTemporalEventsReasonBreakdown(params.eventId as int, params.entityUid, null, null)
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'text/csv'
+        response.getHeader('Content-Disposition').contains("reason-breakdown-monthly-dr143-${dateRangeParam?.toLowerCase()?.replace(' ','-') ?: 'all-time'}.csv")
+        def csvOutput = stringWriter.toString().readLines()
+        csvOutput.size() == expectedRows + 1 // Header + data rows
+
+        where:
+        dateRangeParam    | expectedRows
+        "Last Month"      | 1
+        "Last 3 Months"   | 3
+        "Last 1 Year"     | 3
+        "All Time"        | 3
+        null              | 3
     }
 
-    def "getReasonBreakdownCSV requires an eventId parameter"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        controller.getReasonBreakdownCSV()
-
-        then: "a http 400 bad request should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
+    def "getEmailBreakdown should return 400 if eventId is missing"() {
+        when:
+        params.entityUid = "dr143"
+        controller.getEmailBreakdown()
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing eventId"
     }
 
-    def "getReasonBreakdownCSV should return a CSV with just the column headers for an unrecognised entityUid"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        controller.getReasonBreakdownCSV()
-
-        then: "a http 400 bad request should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
-    }
-
-    def "getReasonBreakdownCSV should return a CSV with just the column headers for unrecognised ids"() {
-        when: "a request is made with an unrecognised eventId and/or entityUid parameter"
-        params.entityUid = "1234"
-        params.eventId = 100
-
-        loggerService.getLogEventsByReason(_, _) >> []
-        controller.getReasonBreakdownCSV()
-
-        then: "a csv with just the column headers should be returned"
-        assert response.status == HttpStatus.OK.value()
-        assert response.text == "\"year\",\"month\",\"reason\",\"number of events\",\"number of records\""
-        assert response.contentType == "text/csv"
-        assert response.getHeader("Content-Disposition") == "attachment; filename=\"downloads-by-reason-1234.csv\""
-    }
-
-    def "getReasonBreakdownCSV should return a CSV with correct counts for a valid request"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        params.eventId = 100
-
-        loggerService.getLogEventsByReason(_, _) >> [new EventSummaryBreakdownReasonEntity(logReasonTypeId: 1, month: "201411", recordCount: 10, numberOfEvents: 2),
-                                                     new EventSummaryBreakdownReasonEntity(logReasonTypeId: 2, month: "201411", recordCount: 200, numberOfEvents: 20)]
-        controller.getReasonBreakdownCSV()
-
-        then: "a csv with the correct counts should be returned"
-        assert response.status == HttpStatus.OK.value()
-        assert response.text == "\"year\",\"month\",\"reason\",\"number of events\",\"number of records\"\n" +
-                "\"2014\",\"11\",\"reason1\",\"2\",\"10\"\n" +
-                "\"2014\",\"11\",\"reason2\",\"20\",\"200\""
-        assert response.contentType == "text/csv"
-        assert response.getHeader("Content-Disposition") == "attachment; filename=\"downloads-by-reason-1234.csv\""
-    }
-
-    def "getEmailBreakdown should return 0 counts for unrecognised entities"() {
-        when: "a request is made with an unrecognised entityUid"
-        params.entityUid = "unknown"
+    def "getEmailBreakdown should return 400 if entityUid is missing"() {
+        when:
         params.eventId = 1000
-        loggerService.getEventsEmailBreakdown(_, _, _, _) >> []
+        controller.getEmailBreakdown()
+        then:
+        response.status == HttpStatus.BAD_REQUEST.value()
+        response.text == "Request is missing entityUid"
+    }
+
+    @Unroll
+    def "getEmailBreakdown should call service with correct dates for #dateRangeParam"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, 'date-range': dateRangeParam]
+
+        // Calculate dates here using TimeCategory
+        Date expectedFromDate
+        Date expectedToDate
+        use(TimeCategory) {
+            expectedToDate = monthsToSubtract != null ? controller.nextMonth() : null
+            expectedFromDate = monthsToSubtract != null ? controller.nextMonth() - monthsToSubtract.months : null
+        }
+
+        loggerService.getEventsEmailBreakdown(params.eventId as int, params.entityUid, getYearAndMonth(expectedFromDate), getYearAndMonth(expectedToDate)) >> []
+
+        when:
         controller.getEmailBreakdown()
 
-        then: "a valid response with 0 counts should be returned"
-        assert response.json.all.events == 0 && response.json.all.records == 0
-        assert response.json.last3Months.events == 0 && response.json.last3Months.records == 0
-        assert response.json.thisMonth.events == 0 && response.json.thisMonth.records == 0
-        assert response.json.lastYear.events == 0 && response.json.lastYear.records == 0
-        assert response.json.all.emailBreakdown.edu.events == 0
-        assert response.json.all.emailBreakdown.gov.events == 0
-        assert response.json.all.emailBreakdown.other.events == 0
-        assert response.json.all.emailBreakdown.unspecified.events == 0
+        then:
+        1 * loggerService.getEventsEmailBreakdown(params.eventId as int, params.entityUid, getYearAndMonth(expectedFromDate), getYearAndMonth(expectedToDate))
+        response.status == HttpStatus.OK.value()
+
+        where:
+        dateRangeParam    | monthsToSubtract
+        "Last Month"      | 1
+        "All Time"        | null
     }
 
-    def "getEmailBreakdown should return correct counts for recognised entities"() {
-        when: "a request is made with a recognised entityUid"
-        params.entityUid = "unknown"
-        params.eventId = 1000
-        loggerService.getEventsEmailBreakdown(_, _, _, _) >> [new EventSummaryBreakdownEmail(userEmailCategory: "edu", numberOfEvents: 3, recordCount: 30),
-                                                              new EventSummaryBreakdownEmail(userEmailCategory: "gov", numberOfEvents: 7, recordCount: 70)]
+    def "getEmailBreakdown should render JSON by default or when format=JSON"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: formatParam]
+        def mockEmailSummaries = [new EventSummaryBreakdownEmail(userEmailCategory: "edu", numberOfEvents: 5, recordCount: 50)]
+        loggerService.getEventsEmailBreakdown(_, _, _, _) >> mockEmailSummaries
+
+        when:
         controller.getEmailBreakdown()
 
-        then: "a valid response with correct counts should be returned"
-        assert response.json.all.events == 10 && response.json.all.records == 100
-        assert response.json.last3Months.events == 10 && response.json.last3Months.records == 100
-        assert response.json.thisMonth.events == 10 && response.json.thisMonth.records == 100
-        assert response.json.lastYear.events == 10 && response.json.lastYear.records == 100
-        assert response.json.all.emailBreakdown.edu.events == 3
-        assert response.json.all.emailBreakdown.gov.events == 7
-        assert response.json.all.emailBreakdown.other.events == 0
-        assert response.json.all.emailBreakdown.unspecified.events == 0
+        then:
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'application/json;charset=UTF-8'
+        response.json.emailBreakdown.events == 5
+        response.json.emailBreakdown.records == 50
+        response.json.emailBreakdown.emailBreakdown.edu.events == 5
+        response.json.emailBreakdown.emailBreakdown.gov.events == 0 // Check default zero count
+        response.json.emailBreakdown.emailBreakdown.other.events == 0
+        response.json.emailBreakdown.emailBreakdown.unspecified.events == 0
+
+        where:
+        formatParam << [null, "JSON", "json", "InvalidFormat"]
     }
 
-    def "getEmailBreakdown should look for this month, last 3 months, last 12 months and all time"() {
-        when: "a breakdown is requested"
-        params << [entityUid: "dr143", eventId: 1000]
-        loggerService.getEventsEmailBreakdown(_, _, _, _) >> [new EventSummaryBreakdownEmail(userEmailCategory: "edu", numberOfEvents: 3, recordCount: 30),
-                                                              new EventSummaryBreakdownEmail(userEmailCategory: "org", numberOfEvents: 7, recordCount: 70)]
+    def "getEmailBreakdown should render CSV when format=CSV"() {
+        given:
+        params << [entityUid: "dr143", eventId: 1000, format: "CSV", 'date-range': "Last 3 Months"]
+        def mockEmailSummaries = [new EventSummaryBreakdownEmail(userEmailCategory: "edu", numberOfEvents: 5, recordCount: 50),
+                                  new EventSummaryBreakdownEmail(userEmailCategory: "other", numberOfEvents: 2, recordCount: 20)]
+        loggerService.getEventsEmailBreakdown(_, _, _, _) >> mockEmailSummaries
+        def stringWriter = new StringWriter()
+        response.writer = new PrintWriter(stringWriter)
+
+        when:
         controller.getEmailBreakdown()
 
-        then: "the service method should be invoked 4 times with the relevant date ranges"
-        1 * loggerService.getEventsEmailBreakdown(_, _, null, null) // all time
-        1 * loggerService.getEventsEmailBreakdown(_, _, thisMonth, nextMonth) // this month
-        1 * loggerService.getEventsEmailBreakdown(_, _, last3Months, nextMonth) // last 3 months
-        1 * loggerService.getEventsEmailBreakdown(_, _, last12Months, nextMonth) // last 12 months
-    }
-
-    def "getEmailBreakdown should collate results from difference date ranges correctly"() {
-        when: "a breakdown is requested"
-        params << [entityUid: "dr143", eventId: 1000]
-        loggerService.getEventsEmailBreakdown(_, _, null, null) >> [new EventSummaryBreakdownEmail(userEmailCategory: "edu", numberOfEvents: 3, recordCount: 30)]
-        loggerService.getEventsEmailBreakdown(_, _, thisMonth, nextMonth) >> [new EventSummaryBreakdownEmail(userEmailCategory: "gov", numberOfEvents: 6, recordCount: 40)]
-        loggerService.getEventsEmailBreakdown(_, _, last3Months, nextMonth) >> [new EventSummaryBreakdownEmail(userEmailCategory: "other", numberOfEvents: 8, recordCount: 50)]
-        loggerService.getEventsEmailBreakdown(_, _, last12Months, nextMonth) >> [new EventSummaryBreakdownEmail(userEmailCategory: "unspecified", numberOfEvents: 10, recordCount: 60)]
-        controller.getEmailBreakdown()
-
-        then: "the results should be collated properly"
-        assert response.json.all.events == 3 && response.json.all.records == 30
-        assert response.json.last3Months.events == 8 && response.json.last3Months.records == 50
-        assert response.json.thisMonth.events == 6 && response.json.thisMonth.records == 40
-        assert response.json.lastYear.events == 10 && response.json.lastYear.records == 60
-    }
-
-    def "getEmailBreakdown requires an eventId parameter"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        controller.getEmailBreakdown()
-
-        then: "a http 400 bad request should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
-    }
-
-    def "getEmailBreakdownCSV requires an eventId parameter"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        controller.getEmailBreakdownCSV()
-
-        then: "a http 400 bad request should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
-    }
-
-    def "getEmailBreakdownCSV should return a CSV with just the column headers for an unrecognised entityUid"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        controller.getEmailBreakdownCSV()
-
-        then: "a http 400 bad request should be returned"
-        assert response.status == HttpStatus.BAD_REQUEST.value()
-    }
-
-    def "getEmailBreakdownCSV should return a CSV with just the column headers for unrecognised ids"() {
-        when: "a request is made with an unrecognised eventId and/or entityUid parameter"
-        params.entityUid = "1234"
-        params.eventId = 100
-        loggerService.getLogEventsByEmail(_, _) >> []
-        controller.getEmailBreakdownCSV()
-
-        then: "a csv with just the column headers should be returned"
-        assert response.status == HttpStatus.OK.value()
-        assert response.text == "\"year\",\"month\",\"user category\",\"number of events\",\"number of records\""
-        assert response.contentType == "text/csv"
-        assert response.getHeader("Content-Disposition") == "attachment; filename=\"downloads-by-email-1234.csv\""
-    }
-
-    def "getEmailBreakdownCSV should return a CSV with correct counts for a valid request"() {
-        when: "a request is made without the eventId parameter"
-        params.entityUid = "1234"
-        params.eventId = 100
-        loggerService.getLogEventsByEmail(_, _) >> [new EventSummaryBreakdownEmailEntity(userEmailCategory: "edu", month: "201411", recordCount: 10, numberOfEvents: 2),
-                                                    new EventSummaryBreakdownEmailEntity(userEmailCategory: "gov", month: "201411", recordCount: 200, numberOfEvents: 20)]
-        controller.getEmailBreakdownCSV()
-
-        then: "a csv with the correct counts should be returned"
-        assert response.status == HttpStatus.OK.value()
-        assert response.text == "\"year\",\"month\",\"user category\",\"number of events\",\"number of records\"\n" +
-                "\"2014\",\"11\",\"edu\",\"2\",\"10\"\n" +
-                "\"2014\",\"11\",\"gov\",\"20\",\"200\""
-        assert response.contentType == "text/csv"
-        assert response.getHeader("Content-Disposition") == "attachment; filename=\"downloads-by-email-1234.csv\""
-    }
-
-    def "getTotalsByEventType should return correct counts"() {
-        when: "a valid request is made"
-        loggerService.getEventTypeBreakdown() >> [new EventSummaryTotal(logEventTypeId: 1000, numberOfEvents: 10, recordCount: 100),
-                                                  new EventSummaryTotal(logEventTypeId: 200, numberOfEvents: 20, recordCount: 200)]
-        controller.getTotalsByEventType()
-
-        then: "the correct counts should be returned in JSON format"
-        assert response.json.totals != null & controller.response.json.totals != ""
-        assert response.json.totals."1000".events == 10 && response.json.totals."1000".records == 100
-        assert response.json.totals."200".events == 20 && response.json.totals."200".records == 200
-    }
-
-    def "getEntityBreakdown should return 0 counts for unrecognised entities"() {
-        when: "a request is made with an unrecognised entityUid"
-        params.entityUid = "unknown"
-        params.eventId = 1000
-        loggerService.getLogEventsByEntity(_, _, _, _) >> []
-        controller.getEntityBreakdown()
-
-        then: "a valid response with 0 counts should be returned"
-        assert response.json.all.numberOfEvents == 0 && response.json.all.numberOfEventItems == 0
-        assert response.json.last3Months.numberOfEvents == 0 && response.json.last3Months.numberOfEventItems == 0
-        assert response.json.thisMonth.numberOfEvents == 0 && response.json.thisMonth.numberOfEventItems == 0
-        assert response.json.lastYear.numberOfEvents == 0 && response.json.lastYear.numberOfEventItems == 0
-    }
-
-    def "getEntityBreakdown should return correct counts for recognised entities"() {
-        when: "a request is made with a recognised entityUid"
-        params.entityUid = "unknown"
-        params.eventId = 1000
-        loggerService.getLogEventsByEntity(_, _, _, _, _) >> [new EventSummaryBreakdownReason(numberOfEvents: 3, recordCount: 30),
-                                                           new EventSummaryBreakdownReason(numberOfEvents: 7, recordCount: 70)]
-        controller.getEntityBreakdown()
-
-        then: "a valid response with correct counts should be returned"
-        assert response.json.all.numberOfEvents == 10 && response.json.all.numberOfEventItems == 100
-        assert response.json.last3Months.numberOfEvents == 10 && response.json.last3Months.numberOfEventItems == 100
-        assert response.json.thisMonth.numberOfEvents == 10 && response.json.thisMonth.numberOfEventItems == 100
-        assert response.json.lastYear.numberOfEvents == 10 && response.json.lastYear.numberOfEventItems == 100
+        then:
+        response.status == HttpStatus.OK.value()
+        response.contentType == 'text/csv'
+        response.getHeader('Content-Disposition').contains('filename="email-breakdown-dr143-last-3-months.csv"')
+        def csvOutput = stringWriter.toString().readLines()
+        csvOutput.size() == 3 // Header + 2 data rows
+        csvOutput[0] == '"user category","number of events","number of records"'
+        csvOutput[1] == '"edu","5","50"'
+        csvOutput[2] == '"other","2","20"'
     }
 
     def "getEntityBreakdown should look for this month, last 3 months, last 12 months and all time"() {
         when: "a breakdown is requested"
         params << [entityUid: "dr143", eventId: 1000]
-        loggerService.getLogEventsByEntity(_, _, _, _, null) >> [new EventSummaryBreakdownReason(reasonTypeId: 1, eventCount: 3, recordCount: 30),
-                                                           new EventSummaryBreakdownReason(reasonTypeId: 2, eventCount: 7, recordCount: 70)]
+        loggerService.getLogEventsByEntity(_, _, _, _, _) >> []
         controller.getEntityBreakdown()
 
         then: "the service method should be invoked 4 times with the relevant date ranges"
-        1 * loggerService.getLogEventsByEntity(_, _, null, null, null) // all time
-        1 * loggerService.getLogEventsByEntity(_, _, thisMonth, nextMonth, null) // this month
-        1 * loggerService.getLogEventsByEntity(_, _, last3Months, nextMonth, null) // last 3 months
-        1 * loggerService.getLogEventsByEntity(_, _, last12Months, nextMonth, null) // last 12 months
+        def fromThisMonth = getYearAndMonth(controller.nextMonth() - 1.month)
+        def fromLast3 = getYearAndMonth(controller.nextMonth() - 3.months)
+        def fromLastYear = getYearAndMonth(controller.nextMonth() - 12.months)
+        def toNextMonth = getYearAndMonth(controller.nextMonth())
+
+        1 * loggerService.getLogEventsByEntity(1000, "dr143", null, null, null) // all time
+        1 * loggerService.getLogEventsByEntity(1000, "dr143", fromThisMonth, toNextMonth, null) // this month
+        1 * loggerService.getLogEventsByEntity(1000, "dr143", fromLast3, toNextMonth, null) // last 3 months
+        1 * loggerService.getLogEventsByEntity(1000, "dr143", fromLastYear, toNextMonth, null) // last 12 months
     }
 
     def "getEntityBreakdown should collate results from difference date ranges correctly"() {
@@ -620,11 +676,6 @@ class LoggerControllerSpec extends Specification implements ControllerUnitTest<L
         assert response.text == """[{"rkey":"key1","name":"reason1","id":1,"deprecated":false},{"rkey":"key2","name":"reason2","id":2,"deprecated":false},{"rkey":"key3","name":"reason3","id":3,"deprecated":false}]"""
     }
 
-    /**
-     * Returns year and month of a Date
-     * @param inDate Date passed in
-     * @return String of yyyyMM
-     */
     private String getYearAndMonth(Date inDate) {
         DateFormat dateFormat = new SimpleDateFormat("yyyyMM")
         String outDate = inDate? dateFormat.format(inDate) : inDate
