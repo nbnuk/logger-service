@@ -36,6 +36,10 @@ class LoggerController {
         render(view: "/index")
     }
 
+    def indexNbn = {
+        render(view: "/index-nbn")
+    }
+
     def notAuthorised = {}
 
     /**
@@ -246,23 +250,92 @@ class LoggerController {
             ]
     )
     @Path("/service/reasonBreakdown")
-    @Produces("application/json")
     def getReasonBreakdown() {
+        // Validate mandatory parameters
         if (!params.eventId) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
-        } else {
-            use(TimeCategory) {
-                Date nextMonth = nextMonth()
+            return handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
+        }
+        // entityUid is optional in some service calls, but seems required here based on old logic
+        if (!params.entityUid) {
+             return handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid")
+        }
 
-                Map<Integer, String> reasonMap = getReasonMap()
+        // Read optional parameters
+        String dateRangeParam = params.'date-range' ?: "All Time" // Default to "All Time" if not provided
+        String formatParam = params.format ?: "JSON" // Default to JSON
 
-                def results = [:]
-                results << ["thisMonth": getReasonBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 1.month, nextMonth, reasonMap)]
-                results << ["last3Months": getReasonBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 3.months, nextMonth, reasonMap)]
-                results << ["lastYear": getReasonBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 12.months, nextMonth, reasonMap)]
-                results << ["all": getReasonBreakdownForPeriod(params.eventId, params.entityUid, null, null, reasonMap)]
+        log.debug("getReasonBreakdown called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, date-range: ${dateRangeParam}, format: ${formatParam}")
 
-                render results as JSON
+        // Calculate date range
+        Date fromDate = null
+        Date toDate = null
+        use(TimeCategory) {
+            Date nextMon = nextMonth() // Helper method already exists
+            switch (dateRangeParam) {
+                case "Last Month":
+                    fromDate = nextMon - 1.month
+                    toDate = nextMon
+                    break
+                case "Last 3 Months":
+                    fromDate = nextMon - 3.months
+                    toDate = nextMon
+                    break
+                case "Last 1 Year":
+                    fromDate = nextMon - 12.months
+                    toDate = nextMon
+                    break
+                case "All Time":
+                    // fromDate and toDate remain null
+                    break
+                default:
+                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
+                    // fromDate and toDate remain null
+                    break
+            }
+        }
+
+        // Fetch data for the calculated period
+        Map<Integer, String> reasonMap = getReasonMap() // Helper method already exists
+        // Call the existing helper which calls the service
+        // Note: getReasonBreakdownForPeriod returns [events: totalEvents, records: totalRecords, reasonBreakdown: grouped]
+        def periodData = getReasonBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate, reasonMap)
+
+        // Render based on format
+        if (formatParam.equalsIgnoreCase("CSV")) {
+            log.debug("Rendering Reason Breakdown as CSV")
+            response.contentType = "text/csv"
+            // Use entityUid if present, otherwise 'all' - adjust filename slightly from original CSV action
+            String filename = "reason-breakdown-${params.entityUid ?: 'all'}-${dateRangeParam.toLowerCase().replace(' ', '-')}.csv"
+            response.addHeader("Content-Disposition", "attachment; filename=\"${filename}\"")
+
+            // Extract the actual breakdown map: [ReasonName:[events:X, records:Y], ...]
+            def breakdownMap = periodData?.reasonBreakdown ?: [:]
+
+            if (breakdownMap) {
+                 // Use a writer that transforms the map into rows
+                 // We need Reason, Events, Records
+                 // Note: The original CSV action (getReasonBreakdownCSV) fetched monthly data differently.
+                 // This new CSV will output totals per reason for the selected period.
+                def csv = new CSVWriter(response.writer, {
+                    col1: "reason"         { it.key } // Reason Name is the key
+                    col2: "number of events" { it.value.events }
+                    col3: "number of records"{ it.value.records }
+                })
+                // Sort by reason name for consistent output
+                breakdownMap.sort { it.key }.each { reason, data -> csv << [key: reason, value: data] }
+
+            } else {
+                 // Header for empty CSV
+                response.writer.write("\"reason\",\"number of events\",\"number of records\"")
+            }
+            response.writer.flush()
+
+        } else { // Default to JSON
+            log.debug("Rendering Reason Breakdown as JSON")
+            // Render the data structure returned by getReasonBreakdownForPeriod
+            // This includes totals and the breakdown map
+            render(contentType: "application/json") {
+                 delegate.reasonBreakdown periodData
             }
         }
     }
@@ -318,118 +391,89 @@ class LoggerController {
             ]
     )
     @Path("/service/sourceBreakdown")
-    @Produces("application/json")
     def getSourceBreakdown() {
-        if (!params.eventId || !params.entityUid) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid and/or eventId")
-        } else {
-            use(TimeCategory) {
-                Integer excludeReasonTypeId = params.int("excludeReasonTypeId")
-                Date nextMonth = nextMonth()
+        // Validate mandatory parameters
+        if (!params.eventId) {
+            return handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
+        }
+        if (!params.entityUid) {
+             return handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid")
+        }
 
-                Map<Integer, String> sourceMap = getSourceMap()
+        // Read optional parameters
+        String dateRangeParam = params.'date-range' ?: "All Time" // Default to "All Time" if not provided
+        String formatParam = params.format ?: "JSON" // Default to JSON
+        Integer excludeReasonTypeId = params.int("excludeReasonTypeId") // Keep existing optional param
 
-                def results = [:]
-                results << ["thisMonth": getSourceBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 1.month, nextMonth, sourceMap, excludeReasonTypeId)]
-                results << ["last3Months": getSourceBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 3.months, nextMonth, sourceMap, excludeReasonTypeId)]
-                results << ["lastYear": getSourceBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 12.months, nextMonth, sourceMap, excludeReasonTypeId)]
-                results << ["all": getSourceBreakdownForPeriod(params.eventId, params.entityUid, null, null, sourceMap, excludeReasonTypeId)]
+        log.debug("getSourceBreakdown called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, date-range: ${dateRangeParam}, format: ${formatParam}, excludeReasonTypeId: ${excludeReasonTypeId}")
 
-                render results as JSON
+        // Calculate date range
+        Date fromDate = null
+        Date toDate = null
+        use(TimeCategory) {
+            Date nextMon = nextMonth()
+            switch (dateRangeParam) {
+                case "Last Month":
+                    fromDate = nextMon - 1.month
+                    toDate = nextMon
+                    break
+                case "Last 3 Months":
+                    fromDate = nextMon - 3.months
+                    toDate = nextMon
+                    break
+                case "Last 1 Year":
+                    fromDate = nextMon - 12.months
+                    toDate = nextMon
+                    break
+                case "All Time":
+                    // fromDate and toDate remain null
+                    break
+                default:
+                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
+                    // fromDate and toDate remain null
+                    break
             }
         }
-    }
 
-    /**
-     * Generate a CSV file containing all log events for the specified eventType and entity, with the reason for download
-     * <p/>
-     * The request is expected to have the following parameters:
-     * <ul>
-     *     <li>eventId - the logEventTypeId to query on. Mandatory.
-     *     <li>entityUid - the entity id to search for.
-     * </ul>
-     * Example request: <pre>.../logger/reasonBreakdownCSV?eventId=1002&entityUid=in4</pre>
-     *
-     * @return all log events for the specified eventType and entity in CSV format
-     */
-    def getReasonBreakdownCSV() {
-        if (!params.eventId || !params.entityUid) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid and/or eventId")
-        } else {
-            Map<Integer, String> reasonMap = getReasonMap()
+        // Fetch data for the calculated period
+        Map<Integer, String> sourceMap = getSourceMap()
+        // Call the existing helper which calls the service
+        // Note: getSourceBreakdownForPeriod returns [events: totalEvents, records: totalRecords, sourceBreakdown: grouped]
+        def periodData = getSourceBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate, sourceMap, excludeReasonTypeId)
 
-            def results = loggerService.getLogEventsByReason(params.eventId, params.entityUid)
-
+        // Render based on format
+        if (formatParam.equalsIgnoreCase("CSV")) {
+            log.debug("Rendering Source Breakdown as CSV")
             response.contentType = "text/csv"
-            response.addHeader("Content-Disposition", "attachment; filename=\"downloads-by-reason-${params.entityUid?:'all'}.csv\"")
+            String filename = "source-breakdown-${params.entityUid ?: 'all'}-${dateRangeParam.toLowerCase().replace(' ', '-')}.csv"
+            response.addHeader("Content-Disposition", "attachment; filename=\"${filename}\"")
 
-            if (results) {
+            // Extract the actual breakdown map: [SourceName:[events:X, records:Y], ...]
+            def breakdownMap = periodData?.sourceBreakdown ?: [:]
+
+            if (breakdownMap) {
+                 // Use a writer that transforms the map into rows
+                 // We need Source, Events, Records
                 def csv = new CSVWriter(response.writer, {
-                    col1:
-                    "year" { (it.month as String).substring(0, 4) }
-                    col2:
-                    "month" { (it.month as String).substring(4) }
-                    col3:
-                    "reason" { reasonMap.get(it.logReasonTypeId) ?: UNCLASSIFIED_REASON_TYPE }
-                    col4:
-                    "number of events" { it.numberOfEvents }
-                    col5:
-                    "number of records" { it.recordCount }
+                    col1: "source"         { it.key } // Source Name is the key
+                    col2: "number of events" { it.value.events }
+                    col3: "number of records"{ it.value.records }
                 })
+                // Sort by source name for consistent output
+                breakdownMap.sort { it.key }.each { source, data -> csv << [key: source, value: data] }
 
-                results.each { e -> csv << e }
             } else {
-                response.writer.write("\"year\",\"month\",\"reason\",\"number of events\",\"number of records\"")
+                 // Header for empty CSV
+                response.writer.write("\"source\",\"number of events\",\"number of records\"")
             }
             response.writer.flush()
-        }
-    }
 
-    /**
-     * Generate a CSV file containing all log events for the specified eventType and entity, with the source for download
-     * <p/>
-     * The request is expected to have the following parameters:
-     * <ul>
-     *     <li>eventId - the logEventTypeId to query on. Mandatory.
-     *     <li>entityUid - the entity id to search for.
-     * </ul>
-     * Example request: <pre>.../logger/sourceBreakdownCSV?eventId=1002&entityUid=in4</pre>
-     *
-     * @return all log events for the specified eventType and entity in CSV format
-     */
-    def getSourceBreakdownCSV() {
-        if (!params.eventId || !params.entityUid) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid and/or eventId")
-        } else {
-            Map<Integer, String> sourceMap = getSourceMap()
-            Map<Integer, String> reasonMap = getReasonMap()
-
-            def results = loggerService.getLogEventsBySource(params.eventId, params.entityUid)
-
-            response.contentType = "text/csv"
-            response.addHeader("Content-Disposition", "attachment; filename=\"downloads-by-source-${params.entityUid}.csv\"")
-
-            if (results) {
-                def csv = new CSVWriter(response.writer, {
-                    col1:
-                    "year" { (it.month as String).substring(0, 4) }
-                    col2:
-                    "month" { (it.month as String).substring(4) }
-                    col3:
-                    "reason" { reasonMap.get(it.logReasonTypeId) ?: UNCLASSIFIED_REASON_TYPE }
-                    col4:
-                    "source" { sourceMap.get(it.logSourceTypeId) ?: UNCLASSIFIED_SOURCE_TYPE }
-                    col5:
-                    "number of events" { it.numberOfEvents }
-                    col6:
-                    "number of records" { it.recordCount }
-                })
-
-                results.each { e -> csv << e }
-            } else {
-                response.writer.write("\"year\",\"month\",\"source\",\"number of events\",\"number of records\"")
+        } else { // Default to JSON
+            log.debug("Rendering Source Breakdown as JSON")
+            // Render the data structure returned by getSourceBreakdownForPeriod
+            render(contentType: "application/json") {
+                delegate.sourceBreakdown periodData
             }
-            response.writer.flush()
         }
     }
 
@@ -501,79 +545,97 @@ class LoggerController {
             ]
     )
     @Path("/service/reasonBreakdownMonthly")
-    @Produces("application/json")
     def getReasonBreakdownByMonth() {
-        if (!params.eventId || !params.entityUid) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid and/or eventId")
-        } else {
-            def results
-
-            if (params.sourceId) {
-                results = loggerService.getTemporalEventsSourceBreakdown(params.eventId, params.entityUid, params.reasonId, params.sourceId, params.excludeReasonTypeId)
-            } else {
-                results = loggerService.getTemporalEventsReasonBreakdown(params.eventId, params.entityUid, params.reasonId, params.excludeReasonTypeId)
-            }
-
-            // convert the list of summaries into a map keyed by the category (month) so it can be rendered in the desired JSON formats
-            def grouped = results ? results.collectEntries { [(it.month): [records: it.recordCount, events: it.numberOfEvents]] } : [:]
-
-            render ([temporalBreakdown: grouped] as JSON)
+        // Validate mandatory parameters
+        if (!params.eventId) {
+            return handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
         }
-    }
+        if (!params.entityUid) {
+            return handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid")
+        }
 
-    /**
-     * Generate a CSV file containing a monthly breakdown of log events for downloads
-     * <p/>
-     * The request is expected to have the following parameters:
-     * <ul>
-     *     <li>eventId - the logEventTypeId to query on. Mandatory.
-     *     <li>entityUid - the entity id to search for.
-     *     <li>reasonTypeId - the log reason to query on. Optional. If not provided, all reasons will be included
-     *     <li>sourceTypeId - the log source to query on. Optional. If not provided, all sources will be included
-     *     <li>excludeReasonTypeId - the <code>logReasonTypeId</code> to exclude from results (usually &quot;testing&quot;). Optional. If not provided, all reasons will be included
-     * </ul>
-     * Example request: <pre>.../logger/reasonBreakdownByMonthCSV?eventId=1002&entityUid=in4&excludeReasonTypeId=10</pre>
-     *
-     * @return all log events for the specified eventType and entity in CSV format
-     */
-    def getReasonBreakdownByMonthCSV() {
-        if (!params.eventId || !params.entityUid) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid and/or eventId")
-        } else {
-            def results
+        // Read optional parameters
+        String dateRangeParam = params.'date-range' ?: "All Time"
+        String formatParam = params.format ?: "JSON"
+        String reasonId = params.reasonId // Keep existing optional param
+        String sourceId = params.sourceId // Keep existing optional param
+        Integer excludeReasonTypeId = params.int("excludeReasonTypeId") // Keep existing optional param
 
-            if (params.sourceId) {
-                results = loggerService.getTemporalEventsSourceBreakdown(params.eventId, params.entityUid, params.reasonId, params.sourceId, params.excludeReasonTypeId)
-            } else {
-                results = loggerService.getTemporalEventsReasonBreakdown(params.eventId, params.entityUid, params.reasonId, params.excludeReasonTypeId)
+        log.debug("getReasonBreakdownByMonth called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, reasonId: ${reasonId}, sourceId: ${sourceId}, date-range: ${dateRangeParam}, format: ${formatParam}, excludeReasonTypeId: ${excludeReasonTypeId}")
+
+        // Calculate date range strings (yyyyMM)
+        String fromDateStr = null
+        String toDateStr = null // Exclusive for comparison
+        use(TimeCategory) {
+            Date nextMon = nextMonth()
+            switch (dateRangeParam) {
+                case "Last Month":
+                    fromDateStr = getYearAndMonth(nextMon - 1.month)
+                    toDateStr = getYearAndMonth(nextMon)
+                    break
+                case "Last 3 Months":
+                    fromDateStr = getYearAndMonth(nextMon - 3.months)
+                    toDateStr = getYearAndMonth(nextMon)
+                    break
+                case "Last 1 Year":
+                    fromDateStr = getYearAndMonth(nextMon - 12.months)
+                    toDateStr = getYearAndMonth(nextMon)
+                    break
+                case "All Time":
+                    // fromDateStr and toDateStr remain null
+                    break
+                default:
+                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
+                    break
             }
+        }
+        log.debug("Calculated date range: from ${fromDateStr} (inclusive) to ${toDateStr} (exclusive)")
 
-            // convert the list of summaries into a map keyed by the category (month) so it can be rendered in the desired JSON formats
-            //def grouped = results ? results.collectEntries { [(it.month): [records: it.recordCount, events: it.numberOfEvents]] } : [:]
+        // Fetch data (currently fetches all months based on other filters)
+        def results
+        if (sourceId) {
+            results = loggerService.getTemporalEventsSourceBreakdown(params.eventId, params.entityUid, reasonId, sourceId, excludeReasonTypeId)
+        } else {
+            results = loggerService.getTemporalEventsReasonBreakdown(params.eventId, params.entityUid, reasonId, excludeReasonTypeId)
+        }
 
+        // Filter results by date range if applicable
+        List filteredResults = results
+        if (fromDateStr && toDateStr) {
+            filteredResults = results?.findAll { it.month >= fromDateStr && it.month < toDateStr }
+        }
+        log.debug("Found ${results?.size()} total months, ${filteredResults?.size()} months after filtering by date range")
+
+        // Render based on format
+        if (formatParam.equalsIgnoreCase("CSV")) {
+            log.debug("Rendering Reason Breakdown by Month as CSV")
             response.contentType = "text/csv"
-            response.addHeader("Content-Disposition", "attachment; filename=\"downloads-by-reason-monthly-${params.entityUid ?: 'all'}.csv\"")
+            String filename = "reason-breakdown-monthly-${params.entityUid ?: 'all'}-${dateRangeParam.toLowerCase().replace(' ', '-')}.csv"
+            response.addHeader("Content-Disposition", "attachment; filename=\"${filename}\"")
 
-            if (results) {
+            if (filteredResults) {
+                // Use logic similar to original getReasonBreakdownByMonthCSV
                 def csv = new CSVWriter(response.writer, {
-                    col1:
-                    "year-month" { (it.month as String) }
-                    col2:
-                    "year" { (it.month as String).substring(0, 4) }
-                    col3:
-                    "month" { (it.month as String).substring(4, 6) }
-                    col4:
-                    "number of events" { it.numberOfEvents }
-                    col5:
-                    "number of records" { it.recordCount }
+                    col1: "year-month"       { it.month }
+                    col2: "year"             { it.month?.substring(0, 4) }
+                    col3: "month"            { it.month?.substring(4, 6) }
+                    col4: "number of events" { it.numberOfEvents }
+                    col5: "number of records"{ it.recordCount }
                 })
-
-                results.each { e -> csv << e }
+                // Sort by month
+                filteredResults.sort { it.month }.each { e -> csv << e }
             } else {
                 response.writer.write("\"year-month\",\"year\",\"month\",\"number of events\",\"number of records\"")
             }
-
             response.writer.flush()
+
+        } else { // Default to JSON
+            log.debug("Rendering Reason Breakdown by Month as JSON")
+            // Convert the filtered list of summaries into a map keyed by month
+            def grouped = filteredResults ? filteredResults.collectEntries { [(it.month): [records: it.recordCount, events: it.numberOfEvents]] } : [:]
+            render(contentType: "application/json") {
+                 delegate.temporalBreakdown grouped
+            }
         }
     }
 
@@ -622,64 +684,81 @@ class LoggerController {
     @Produces("application/json")
     @Path("/service/emailBreakdown")
     def getEmailBreakdown() {
+        // Validate mandatory parameters
         if (!params.eventId) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
-        } else {
-            use(TimeCategory) {
-                Date nextMonth = nextMonth()
+            return handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
+        }
+        // Should we mandate entityUid like the others?
+        if (!params.entityUid) {
+             return handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid")
+        }
 
-                def results = [:]
-                results << ["last3Months": getEmailBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 3.months, nextMonth)]
-                results << ["all": getEmailBreakdownForPeriod(params.eventId, params.entityUid, null, null)]
-                results << ["thisMonth": getEmailBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 1.month, nextMonth)]
-                results << ["lastYear": getEmailBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 12.months, nextMonth)]
+        // Read optional parameters
+        String dateRangeParam = params.'date-range' ?: "All Time"
+        String formatParam = params.format ?: "JSON"
 
-                render results as JSON
+        log.debug("getEmailBreakdown called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, date-range: ${dateRangeParam}, format: ${formatParam}")
+
+        // Calculate date range
+        Date fromDate = null
+        Date toDate = null
+        use(TimeCategory) {
+            Date nextMon = nextMonth()
+            switch (dateRangeParam) {
+                case "Last Month":
+                    fromDate = nextMon - 1.month
+                    toDate = nextMon
+                    break
+                case "Last 3 Months":
+                    fromDate = nextMon - 3.months
+                    toDate = nextMon
+                    break
+                case "Last 1 Year":
+                    fromDate = nextMon - 12.months
+                    toDate = nextMon
+                    break
+                case "All Time":
+                    // fromDate and toDate remain null
+                    break
+                default:
+                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
+                    break
             }
         }
-    }
 
-    /**
-     * Generate a CSV file containing all log events for the specified eventType and entity, with the user email category
-     * <p/>
-     * The request is expected to have the following parameters:
-     * <ul>
-     *     <li>eventId - the logEventTypeId to query on. Mandatory.
-     *     <li>entityUid - the entity id to search for. Mandatory.
-     * </ul>
-     * Example request: <pre>.../logger/emailBreakdownCSV?eventId=1002&entityUid=in4</pre>
-     *
-     * @return all log events for the specified eventType and entity in CSV format
-     */
-    def getEmailBreakdownCSV() {
-        if (!params.eventId || !params.entityUid) {
-            handleError(HttpStatus.BAD_REQUEST, "Request is missing entityUid and/or eventId")
-        } else {
-            def results = loggerService.getLogEventsByEmail(params.eventId, params.entityUid)
+        // Fetch data for the calculated period
+        // Note: getEmailBreakdownForPeriod returns [events: totalEvents, records: totalRecords, emailBreakdown: grouped]
+        def periodData = getEmailBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate)
 
+        // Render based on format
+        if (formatParam.equalsIgnoreCase("CSV")) {
+            log.debug("Rendering Email Breakdown as CSV")
             response.contentType = "text/csv"
-            response.addHeader("Content-Disposition", "attachment; filename=\"downloads-by-email-${params.entityUid}.csv\"")
+            String filename = "email-breakdown-${params.entityUid ?: 'all'}-${dateRangeParam.toLowerCase().replace(' ', '-')}.csv"
+            response.addHeader("Content-Disposition", "attachment; filename=\"${filename}\"")
 
-            if (results) {
+            // Extract the actual breakdown map: [CategoryName:[events:X, records:Y], ...]
+            def breakdownMap = periodData?.emailBreakdown ?: [:]
+
+            if (breakdownMap) {
                 def csv = new CSVWriter(response.writer, {
-                    col1:
-                    "year" { (it.month as String)?.substring(0, 4) }
-                    col2:
-                    "month" { (it.month as String)?.substring(4) }
-                    col3:
-                    "user category" { it.userEmailCategory }
-                    col4:
-                    "number of events" { it.numberOfEvents }
-                    col5:
-                    "number of records" { it.recordCount }
+                    col1: "user category"    { it.key } // Category Name is the key
+                    col2: "number of events" { it.value.events }
+                    col3: "number of records"{ it.value.records }
                 })
-
-                results.each { e -> csv << e }
+                // Sort by category name for consistent output
+                breakdownMap.sort { it.key }.each { category, data -> csv << [key: category, value: data] }
             } else {
-                response.writer.write("\"year\",\"month\",\"user category\",\"number of events\",\"number of records\"")
+                response.writer.write("\"user category\",\"number of events\",\"number of records\"")
             }
-
             response.writer.flush()
+
+        } else { // Default to JSON
+            log.debug("Rendering Email Breakdown as JSON")
+            // Render the data structure returned by getEmailBreakdownForPeriod
+            render(contentType: "application/json") {
+                delegate.emailBreakdown periodData
+            }
         }
     }
 
