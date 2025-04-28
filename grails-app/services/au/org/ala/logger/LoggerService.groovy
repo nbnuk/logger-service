@@ -532,4 +532,149 @@ class LoggerService {
             log.debug("Database write succeeded for entity ${entity}")
         }
     }
+
+    /**
+     * Retrieve and aggregate email breakdown data for a specific period
+     *
+     * @param eventTypeId The event type to search for
+     * @param entityUid The entity to search for
+     * @param fromDate Start date of the period (or null for all time)
+     * @param toDate End date of the period (or null for all time)
+     * @return Map with aggregated data in the format [events: totalEvents, records: totalRecords, emailBreakdown: grouped]
+     */
+    def getEmailBreakdownForPeriod(eventTypeId, entityUid, Date fromDate, Date toDate) {
+        String fromDateStr = formatYearMonth(fromDate)
+        String toDateStr = formatYearMonth(toDate)
+
+        def emailSummary = getEventsEmailBreakdown(eventTypeId as int, entityUid, fromDateStr, toDateStr)
+        def emailCategories = ["edu", "gov", "other", "unspecified"]
+        def grouped = emailCategories.collectEntries { v -> [(v): ["events": 0, "records": 0]] }
+
+        def totalEvents = 0
+        def totalRecords = 0
+
+        if (emailSummary) {
+            emailSummary.each {
+                def entry = grouped[it.userEmailCategory]
+                entry["records"] += it.recordCount
+                entry["events"] += it.numberOfEvents
+                totalEvents += it.numberOfEvents
+                totalRecords += it.recordCount
+            }
+        }
+
+        [events: totalEvents, records: totalRecords, emailBreakdown: grouped]
+    }
+
+    /**
+     * Retrieve and aggregate reason breakdown data for a specific period
+     *
+     * @param eventTypeId The event type to search for
+     * @param entityUid The entity to search for
+     * @param fromDate Start date of the period (or null for all time)
+     * @param toDate End date of the period (or null for all time)
+     * @param reasonMap Map of reason IDs to names
+     * @return Map with aggregated data in the format [events: totalEvents, records: totalRecords, reasonBreakdown: grouped]
+     */
+    def getReasonBreakdownForPeriod(eventTypeId, entityUid, Date fromDate, Date toDate, Map<Integer, String> reasonMap) {
+        String fromDateStr = formatYearMonth(fromDate)
+        String toDateStr = formatYearMonth(toDate)
+        final String UNCLASSIFIED_REASON_TYPE = "unclassified"
+
+        def reasonSummary = getEventsReasonBreakdown(eventTypeId as int, entityUid, fromDateStr, toDateStr)
+
+        def grouped = reasonMap.collectEntries { k, v -> [(v): ["events": 0, "records": 0]] }
+                .withDefault { ["events": 0, "records": 0] }
+
+        def totalEvents = 0
+        def totalRecords = 0
+
+        if (reasonSummary) {
+            reasonSummary.each {
+                def entry = grouped[reasonMap[it.logReasonTypeId] ?: UNCLASSIFIED_REASON_TYPE]
+                entry["records"] += it.recordCount
+                entry["events"] += it.numberOfEvents
+                totalEvents += it.numberOfEvents
+                totalRecords += it.recordCount
+            }
+        }
+
+        [events: totalEvents, records: totalRecords, reasonBreakdown: grouped]
+    }
+
+    /**
+     * Retrieve and aggregate source breakdown data for a specific period
+     *
+     * @param eventTypeId The event type to search for
+     * @param entityUid The entity to search for
+     * @param fromDate Start date of the period (or null for all time)
+     * @param toDate End date of the period (or null for all time)
+     * @param sourceMap Map of source IDs to names
+     * @param excludeReasonTypeId The logReasonTypeId to exclude from results (usually "testing")
+     * @return Map with aggregated data in the format [events: totalEvents, records: totalRecords, sourceBreakdown: grouped]
+     */
+    def getSourceBreakdownForPeriod(eventTypeId, entityUid, Date fromDate, Date toDate, Map<Integer, String> sourceMap, Integer excludeReasonTypeId) {
+        String fromDateStr = formatYearMonth(fromDate)
+        String toDateStr = formatYearMonth(toDate)
+        final String UNCLASSIFIED_SOURCE_TYPE = "unclassified"
+
+        def sourceSummary = getEventsSourceBreakdown(eventTypeId as int, entityUid, fromDateStr, toDateStr, excludeReasonTypeId)
+
+        def grouped = sourceMap.collectEntries { k, v -> [(v): ["events": 0, "records": 0]] }
+                .withDefault { ["events": 0, "records": 0] }
+
+        def totalEvents = 0
+        def totalRecords = 0
+
+        if (sourceSummary) {
+            sourceSummary.each {
+                def entry = grouped[sourceMap[it.logSourceTypeId] ?: UNCLASSIFIED_SOURCE_TYPE]
+                entry["records"] += it.recordCount
+                entry["events"] += it.numberOfEvents
+                totalEvents += it.numberOfEvents
+                totalRecords += it.recordCount
+            }
+        }
+
+        [events: totalEvents, records: totalRecords, sourceBreakdown: grouped]
+    }
+
+    /**
+     * Retrieve and aggregate entity breakdown data for a specific period
+     *
+     * @param eventTypeId The event type to search for
+     * @param entityUid The entity to search for
+     * @param fromDate Start date of the period (or null for all time)
+     * @param toDate End date of the period (or null for all time)
+     * @param excludeReasonTypeId The logReasonTypeId to exclude from results (usually "testing")
+     * @return Map with aggregated data in the format [numberOfEvents: totalEvents, numberOfEventItems: totalRecords]
+     */
+    def getEntityBreakdownForPeriod(eventTypeId, entityUid, Date fromDate, Date toDate, Integer excludeReasonTypeId) {
+        String fromDateStr = formatYearMonth(fromDate)
+        String toDateStr = formatYearMonth(toDate)
+
+        def entitySummary = getLogEventsByEntity(eventTypeId as int, entityUid, fromDateStr, toDateStr, excludeReasonTypeId)
+
+        def totalEvents = 0
+        def totalRecords = 0
+
+        if (entitySummary) {
+            entitySummary.each {
+                totalEvents += it.numberOfEvents
+                totalRecords += it.recordCount
+            }
+        }
+
+        [numberOfEvents: totalEvents, numberOfEventItems: totalRecords]
+    }
+
+    /**
+     * Formats a date as a year-month string (yyyyMM)
+     * @param date The date to format
+     * @return Formatted string or null if date is null
+     */
+    def formatYearMonth(Date date) {
+        if (!date) return null
+        new SimpleDateFormat("yyyyMM").format(date)
+    }
 }

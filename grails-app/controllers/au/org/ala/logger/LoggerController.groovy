@@ -273,9 +273,8 @@ class LoggerController {
 
         // Fetch data for the calculated period
         Map<Integer, String> reasonMap = getReasonMap() // Helper method already exists
-        // Call the existing helper which calls the service
-        // Note: getReasonBreakdownForPeriod returns [events: totalEvents, records: totalRecords, reasonBreakdown: grouped]
-        def periodData = getReasonBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate, reasonMap)
+        // Call the service method which now handles all the aggregation
+        def periodData = loggerService.getReasonBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate, reasonMap)
 
         // Render based on format
         if (formatParam.equalsIgnoreCase("CSV")) {
@@ -391,9 +390,8 @@ class LoggerController {
 
         // Fetch data for the calculated period
         Map<Integer, String> sourceMap = getSourceMap()
-        // Call the existing helper which calls the service
-        // Note: getSourceBreakdownForPeriod returns [events: totalEvents, records: totalRecords, sourceBreakdown: grouped]
-        def periodData = getSourceBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate, sourceMap, excludeReasonTypeId)
+        // Call the service method which now handles all the aggregation
+        def periodData = loggerService.getSourceBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate, sourceMap, excludeReasonTypeId)
 
         // Render based on format
         if (formatParam.equalsIgnoreCase("CSV")) {
@@ -519,8 +517,8 @@ class LoggerController {
 
         // Calculate date range and convert to strings
         Map dateRange = calculateDateRange(dateRangeParam)
-        String fromDateStr = getYearAndMonth(dateRange.fromDate) // Use helper
-        String toDateStr = getYearAndMonth(dateRange.toDate)     // Use helper (will be exclusive in comparison logic)
+        String fromDateStr = dateRange.fromDate ? new SimpleDateFormat("yyyyMM").format(dateRange.fromDate) : null
+        String toDateStr = dateRange.toDate ? new SimpleDateFormat("yyyyMM").format(dateRange.toDate) : null
 
         log.debug("Calculated date range: from ${fromDateStr} (inclusive) to ${toDateStr} (exclusive)")
 
@@ -638,8 +636,8 @@ class LoggerController {
         Date toDate = dateRange.toDate
 
         // Fetch data for the calculated period
-        // Note: getEmailBreakdownForPeriod returns [events: totalEvents, records: totalRecords, emailBreakdown: grouped]
-        def periodData = getEmailBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate)
+        // Call the service method which now handles all the aggregation
+        def periodData = loggerService.getEmailBreakdownForPeriod(params.eventId, params.entityUid, fromDate, toDate)
 
         // Render based on format
         if (formatParam.equalsIgnoreCase("CSV")) {
@@ -688,10 +686,10 @@ class LoggerController {
             Integer excludeReasonTypeId = params.int("excludeReasonTypeId")
 
             def results = [:]
-            results << ["all": getEntityBreakdownForPeriod(params.eventId, params.entityUid, null, null, excludeReasonTypeId)]
-            results << ["last3Months": getEntityBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 3.months, nextMonth, excludeReasonTypeId)]
-            results << ["thisMonth": getEntityBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 1.month, nextMonth, excludeReasonTypeId)]
-            results << ["lastYear": getEntityBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 12.months, nextMonth, excludeReasonTypeId)]
+            results << ["all": loggerService.getEntityBreakdownForPeriod(params.eventId, params.entityUid, null, null, excludeReasonTypeId)]
+            results << ["last3Months": loggerService.getEntityBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 3.months, nextMonth, excludeReasonTypeId)]
+            results << ["thisMonth": loggerService.getEntityBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 1.month, nextMonth, excludeReasonTypeId)]
+            results << ["lastYear": loggerService.getEntityBreakdownForPeriod(params.eventId, params.entityUid, nextMonth - 12.months, nextMonth, excludeReasonTypeId)]
 
             render results as JSON
         }
@@ -810,91 +808,6 @@ class LoggerController {
         render loggerService.getAllSourceTypes().collect({k -> [name: k.name, id: k.id]}) as JSON
     }
 
-    // returns a triple of [totalEvents | totalRecords | emailBreakdown] for the requested period.
-    private def getEmailBreakdownForPeriod(eventTypeId, entityUid, from, to) {
-        def emailSummary = loggerService.getEventsEmailBreakdown(eventTypeId as int, entityUid, getYearAndMonth(from), getYearAndMonth(to))
-
-        def grouped = EMAIL_CATEGORIES.collectEntries { v -> [(v): ["events": 0, "records": 0]] }
-
-        def totalEvents = 0
-        def totalRecords = 0
-
-        if (emailSummary) {
-            emailSummary.each {
-                def entry = grouped[it.userEmailCategory]
-                entry["records"] += it.recordCount
-                entry["events"] += it.numberOfEvents
-                totalEvents += it.numberOfEvents
-                totalRecords += it.recordCount
-            }
-        }
-
-        [events: totalEvents, records: totalRecords, emailBreakdown: grouped]
-    }
-
-    // returns a triple of [totalEvents | totalRecords | reasonBreakdown] for the requested period.
-    private def getReasonBreakdownForPeriod(eventTypeId, entityUid, from, to, reasonMap) {
-        def reasonSummary = loggerService.getEventsReasonBreakdown(eventTypeId as int, entityUid, getYearAndMonth(from), getYearAndMonth(to))
-
-        def grouped = reasonMap.collectEntries { k, v -> [(v): ["events": 0, "records": 0]] }
-                .withDefault { ["events": 0, "records": 0] }
-
-        def totalEvents = 0
-        def totalRecords = 0
-
-        if (reasonSummary) {
-            reasonSummary.each {
-                def entry = grouped[reasonMap[it.logReasonTypeId] ?: UNCLASSIFIED_REASON_TYPE]
-                entry["records"] += it.recordCount
-                entry["events"] += it.numberOfEvents
-                totalEvents += it.numberOfEvents
-                totalRecords += it.recordCount
-            }
-        }
-
-        [events: totalEvents, records: totalRecords, reasonBreakdown: grouped]
-    }
-
-    // returns a triple of [totalEvents | totalRecords | sourceBreakdown] for the requested period.
-    private def getSourceBreakdownForPeriod(eventTypeId, entityUid, from, to, sourceMap, Integer excludeReasonTypeId ) {
-        def sourceSummary = loggerService.getEventsSourceBreakdown(eventTypeId as int, entityUid, getYearAndMonth(from), getYearAndMonth(to), excludeReasonTypeId)
-
-        def grouped = sourceMap.collectEntries { k, v -> [(v): ["events": 0, "records": 0]] }
-                .withDefault { ["events": 0, "records": 0] }
-
-        def totalEvents = 0
-        def totalRecords = 0
-
-        if (sourceSummary) {
-            sourceSummary.each {
-                def entry = grouped[sourceMap[it.logSourceTypeId] ?: UNCLASSIFIED_SOURCE_TYPE]
-                entry["records"] += it.recordCount
-                entry["events"] += it.numberOfEvents
-                totalEvents += it.numberOfEvents
-                totalRecords += it.recordCount
-            }
-        }
-
-        [events: totalEvents, records: totalRecords, sourceBreakdown: grouped]
-    }
-
-    // returns a tuple of [totalEvents | totalRecords] for the requested period.
-    private def getEntityBreakdownForPeriod(eventTypeId, entityUid, from, to, excludeReasonTypeId) {
-        def entitySummary = loggerService.getLogEventsByEntity(eventTypeId as int, entityUid, getYearAndMonth(from), getYearAndMonth(to), excludeReasonTypeId)
-
-        def totalEvents = 0
-        def totalRecords = 0
-
-        if (entitySummary) {
-            entitySummary.each {
-                totalEvents += it.numberOfEvents
-                totalRecords += it.recordCount
-            }
-        }
-
-        [numberOfEvents: totalEvents, numberOfEventItems: totalRecords]
-    }
-
     private def handleError(HttpStatus httpStatus, String logMessage, Throwable e = null) {
         log.error(logMessage, e)
         response.setStatus(httpStatus.value())
@@ -924,17 +837,6 @@ class LoggerController {
         date.set(Calendar.DAY_OF_MONTH, 1);
         Date nextMonth = date.getTime() + 1.month
         nextMonth
-    }
-
-    /**
-     * Returns year and month of a Date
-     * @param inDate Date passed in
-     * @return String of yyyyMM
-     */
-    private String getYearAndMonth(Date inDate) {
-        DateFormat dateFormat = new SimpleDateFormat("yyyyMM")
-        String outDate = inDate? dateFormat.format(inDate) : inDate
-        outDate
     }
 
     /**
