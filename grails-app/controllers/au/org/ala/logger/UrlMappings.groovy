@@ -16,16 +16,12 @@ class UrlMappings {
         "/service/reasonBreakdown"(controller: "logger", action: [GET: "getReasonBreakdown"])
         "/service/reasonBreakdown.json"(controller: "logger", action: [GET: "getReasonBreakdown"])
         "/service/reasonBreakdownMonthly"(controller: "logger", action: [GET: "getReasonBreakdownByMonth"])
-        // "/service/reasonBreakdownByMonthCSV"(controller: "logger", action: [GET: "getReasonBreakdownByMonthCSV"]) // Mapping removed
-        // "/service/reasonBreakdownCSV"(controller: "logger", action: [GET: "getReasonBreakdownCSV"]) // Mapping removed
 
         "/service/sourceBreakdown"(controller: "logger", action: [GET: "getSourceBreakdown"])
         "/service/sourceBreakdown.json"(controller: "logger", action: [GET: "getSourceBreakdown"])
-        // "/service/sourceBreakdownCSV"(controller: "logger", action: [GET: "getSourceBreakdownCSV"]) // Mapping removed
 
         "/service/emailBreakdown"(controller: "logger", action: [GET: "getEmailBreakdown"])
         "/service/emailBreakdown.json"(controller: "logger", action: [GET: "getEmailBreakdown"])
-        // "/service/emailBreakdownCSV"(controller: "logger", action: [GET: "getEmailBreakdownCSV"]) // Mapping removed
 
         "/service/totalsByType"(controller: "logger", action: [GET: "getTotalsByEventType"])
 

@@ -266,33 +266,10 @@ class LoggerController {
 
         log.debug("getReasonBreakdown called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, date-range: ${dateRangeParam}, format: ${formatParam}")
 
-        // Calculate date range
-        Date fromDate = null
-        Date toDate = null
-        use(TimeCategory) {
-            Date nextMon = nextMonth() // Helper method already exists
-            switch (dateRangeParam) {
-                case "Last Month":
-                    fromDate = nextMon - 1.month
-                    toDate = nextMon
-                    break
-                case "Last 3 Months":
-                    fromDate = nextMon - 3.months
-                    toDate = nextMon
-                    break
-                case "Last 1 Year":
-                    fromDate = nextMon - 12.months
-                    toDate = nextMon
-                    break
-                case "All Time":
-                    // fromDate and toDate remain null
-                    break
-                default:
-                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
-                    // fromDate and toDate remain null
-                    break
-            }
-        }
+        // Calculate date range using helper
+        Map dateRange = calculateDateRange(dateRangeParam)
+        Date fromDate = dateRange.fromDate
+        Date toDate = dateRange.toDate
 
         // Fetch data for the calculated period
         Map<Integer, String> reasonMap = getReasonMap() // Helper method already exists
@@ -407,33 +384,10 @@ class LoggerController {
 
         log.debug("getSourceBreakdown called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, date-range: ${dateRangeParam}, format: ${formatParam}, excludeReasonTypeId: ${excludeReasonTypeId}")
 
-        // Calculate date range
-        Date fromDate = null
-        Date toDate = null
-        use(TimeCategory) {
-            Date nextMon = nextMonth()
-            switch (dateRangeParam) {
-                case "Last Month":
-                    fromDate = nextMon - 1.month
-                    toDate = nextMon
-                    break
-                case "Last 3 Months":
-                    fromDate = nextMon - 3.months
-                    toDate = nextMon
-                    break
-                case "Last 1 Year":
-                    fromDate = nextMon - 12.months
-                    toDate = nextMon
-                    break
-                case "All Time":
-                    // fromDate and toDate remain null
-                    break
-                default:
-                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
-                    // fromDate and toDate remain null
-                    break
-            }
-        }
+        // Calculate date range using helper
+        Map dateRange = calculateDateRange(dateRangeParam)
+        Date fromDate = dateRange.fromDate
+        Date toDate = dateRange.toDate
 
         // Fetch data for the calculated period
         Map<Integer, String> sourceMap = getSourceMap()
@@ -563,32 +517,11 @@ class LoggerController {
 
         log.debug("getReasonBreakdownByMonth called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, reasonId: ${reasonId}, sourceId: ${sourceId}, date-range: ${dateRangeParam}, format: ${formatParam}, excludeReasonTypeId: ${excludeReasonTypeId}")
 
-        // Calculate date range strings (yyyyMM)
-        String fromDateStr = null
-        String toDateStr = null // Exclusive for comparison
-        use(TimeCategory) {
-            Date nextMon = nextMonth()
-            switch (dateRangeParam) {
-                case "Last Month":
-                    fromDateStr = getYearAndMonth(nextMon - 1.month)
-                    toDateStr = getYearAndMonth(nextMon)
-                    break
-                case "Last 3 Months":
-                    fromDateStr = getYearAndMonth(nextMon - 3.months)
-                    toDateStr = getYearAndMonth(nextMon)
-                    break
-                case "Last 1 Year":
-                    fromDateStr = getYearAndMonth(nextMon - 12.months)
-                    toDateStr = getYearAndMonth(nextMon)
-                    break
-                case "All Time":
-                    // fromDateStr and toDateStr remain null
-                    break
-                default:
-                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
-                    break
-            }
-        }
+        // Calculate date range and convert to strings
+        Map dateRange = calculateDateRange(dateRangeParam)
+        String fromDateStr = getYearAndMonth(dateRange.fromDate) // Use helper
+        String toDateStr = getYearAndMonth(dateRange.toDate)     // Use helper (will be exclusive in comparison logic)
+
         log.debug("Calculated date range: from ${fromDateStr} (inclusive) to ${toDateStr} (exclusive)")
 
         // Fetch data (currently fetches all months based on other filters)
@@ -699,32 +632,10 @@ class LoggerController {
 
         log.debug("getEmailBreakdown called with eventId: ${params.eventId}, entityUid: ${params.entityUid}, date-range: ${dateRangeParam}, format: ${formatParam}")
 
-        // Calculate date range
-        Date fromDate = null
-        Date toDate = null
-        use(TimeCategory) {
-            Date nextMon = nextMonth()
-            switch (dateRangeParam) {
-                case "Last Month":
-                    fromDate = nextMon - 1.month
-                    toDate = nextMon
-                    break
-                case "Last 3 Months":
-                    fromDate = nextMon - 3.months
-                    toDate = nextMon
-                    break
-                case "Last 1 Year":
-                    fromDate = nextMon - 12.months
-                    toDate = nextMon
-                    break
-                case "All Time":
-                    // fromDate and toDate remain null
-                    break
-                default:
-                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
-                    break
-            }
-        }
+        // Calculate date range using helper
+        Map dateRange = calculateDateRange(dateRangeParam)
+        Date fromDate = dateRange.fromDate
+        Date toDate = dateRange.toDate
 
         // Fetch data for the calculated period
         // Note: getEmailBreakdownForPeriod returns [events: totalEvents, records: totalRecords, emailBreakdown: grouped]
@@ -1024,6 +935,41 @@ class LoggerController {
         DateFormat dateFormat = new SimpleDateFormat("yyyyMM")
         String outDate = inDate? dateFormat.format(inDate) : inDate
         outDate
+    }
+
+    /**
+     * Calculates the start and end dates based on a date range string parameter.
+     * @param dateRangeParam The string representing the date range (e.g., "Last Month", "Last 3 Months", "Last 1 Year", "All Time").
+     * @return A Map containing [fromDate: Date, toDate: Date]. Returns null dates for "All Time" or invalid input.
+     */
+    private Map calculateDateRange(String dateRangeParam) {
+        Date fromDate = null
+        Date toDate = null
+        use(TimeCategory) {
+            Date nextMon = nextMonth() // Use existing helper
+            switch (dateRangeParam) {
+                case "Last Month":
+                    fromDate = nextMon - 1.month
+                    toDate = nextMon
+                    break
+                case "Last 3 Months":
+                    fromDate = nextMon - 3.months
+                    toDate = nextMon
+                    break
+                case "Last 1 Year":
+                    fromDate = nextMon - 12.months
+                    toDate = nextMon
+                    break
+                case "All Time":
+                    // fromDate and toDate remain null
+                    break
+                default:
+                    log.warn("Invalid date-range parameter received: ${dateRangeParam}. Defaulting to All Time.")
+                    // fromDate and toDate remain null
+                    break
+            }
+        }
+        return [fromDate: fromDate, toDate: toDate]
     }
 
 }
