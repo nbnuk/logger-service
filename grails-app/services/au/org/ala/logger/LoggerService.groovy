@@ -395,6 +395,95 @@ class LoggerService {
         result.collect { k -> new EventSummaryBreakdownReason(month: k[0], numberOfEvents: k[1], recordCount: k[2]) }
     }
 
+    /**
+     * Retrieve download statistics grouped by month
+     *
+     * @param eventTypeId The event type to filter on (default 1002 for downloads)
+     * @param fromMonth The starting month in format yyyyMM (inclusive)
+     * @param toMonth The ending month in format yyyyMM (inclusive)
+     * @param excludeTestingReasonId The reason type ID to consider as "testing" (default 10)
+     * @return List of maps with summary data [month, logEventTypeId, isTesting, numUsers, numEvents, numRecords]
+     */
+    def getDownloadsByMonth(Integer eventTypeId = 1002, String fromMonth, String toMonth, Integer excludeTestingReasonId = 10) {
+        log.debug("Getting downloads by month with eventTypeId=${eventTypeId}, fromMonth=${fromMonth}, toMonth=${toMonth}, excludeTestingReasonId=${excludeTestingReasonId}")
+
+        assert eventTypeId, "eventTypeId is a mandatory parameter"
+        assert fromMonth && toMonth, "fromMonth and toMonth are mandatory parameters"
+
+        String query = """
+            SELECT
+                le.month,
+                le.logEventTypeId,
+                MIN(CASE WHEN le.logReasonTypeId = :excludeTestingId THEN true ELSE false END),
+                COUNT(DISTINCT le.userEmail),
+                COUNT(le.id)
+            FROM
+                LogEvent le
+            WHERE
+                le.logEventTypeId = :eventTypeId
+                AND (le.logReasonTypeId IS NULL OR le.logReasonTypeId != :excludeTestingId)
+                AND le.month >= :fromMonth
+                AND le.month <= :toMonth
+                AND EXISTS (
+                    SELECT 1 FROM LogDetail ld
+                    WHERE ld.logEvent.id = le.id
+                    AND ld.entityUid LIKE 'dr%'
+                )
+            GROUP BY
+                le.month, le.logEventTypeId
+            ORDER BY
+                le.month
+        """
+
+        def mainResults = LogEvent.executeQuery(query, [
+            eventTypeId: eventTypeId,
+            excludeTestingId: excludeTestingReasonId,
+            fromMonth: fromMonth,
+            toMonth: toMonth
+        ])
+
+        // Get the record counts separately
+        def recordCounts = LogDetail.executeQuery("""
+            SELECT
+                le.month,
+                SUM(ld.recordCount)
+            FROM
+                LogDetail ld
+                JOIN ld.logEvent le
+            WHERE
+                le.logEventTypeId = :eventTypeId
+                AND (le.logReasonTypeId IS NULL OR le.logReasonTypeId != :excludeTestingId)
+                AND le.month >= :fromMonth
+                AND le.month <= :toMonth
+                AND ld.entityUid LIKE 'dr%'
+            GROUP BY
+                le.month
+            ORDER BY
+                le.month
+        """, [
+            eventTypeId: eventTypeId,
+            excludeTestingId: excludeTestingReasonId,
+            fromMonth: fromMonth,
+            toMonth: toMonth
+        ])
+
+        // Create a map of month to record count
+        def recordCountMap = recordCounts.collectEntries { [it[0], it[1]] }
+
+        // Combine the results
+        mainResults.collect { row ->
+            def month = row[0]
+            [
+                month: month,
+                logEventTypeId: row[1],
+                isTesting: row[2],
+                numUsers: row[3] ?: 0,
+                numEvents: row[4],
+                numRecords: recordCountMap[month] ?: 0
+            ]
+        }
+    }
+
     private getBreakdown(eventTypeId, entityUid, fromDate, toDate, categoryProperty, domainClass, noEntityDomainClass, Integer excludeReasonTypeId) {
         assert fromDate && toDate || !fromDate && !toDate, "Must supply both a dateFrom and dateTo string or neither"
 
