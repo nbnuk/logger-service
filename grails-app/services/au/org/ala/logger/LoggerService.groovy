@@ -396,92 +396,53 @@ class LoggerService {
     }
 
     /**
-     * Retrieve download statistics grouped by month
+     * Retrieve download statistics grouped by month using a stored procedure
      *
-     * @param eventTypeId The event type to filter on (default 1002 for downloads)
+     * @param eventTypeId The event type to filter on (default 1002 for downloads), not currently used by the stored procedure
      * @param fromMonth The starting month in format yyyyMM (inclusive)
      * @param toMonth The ending month in format yyyyMM (inclusive)
-     * @param excludeTestingReasonId The reason type ID to consider as "testing" (default 10)
+     * @param excludeTestingReasonId The reason type ID to consider as "testing" (default 10), not currently used by the stored procedure
      * @return List of maps with summary data [month, logEventTypeId, isTesting, numUsers, numEvents, numRecords]
      */
     def getDownloadsByMonth(Integer eventTypeId = 1002, String fromMonth, String toMonth, Integer excludeTestingReasonId = 10) {
         log.debug("Getting downloads by month with eventTypeId=${eventTypeId}, fromMonth=${fromMonth}, toMonth=${toMonth}, excludeTestingReasonId=${excludeTestingReasonId}")
 
-        assert eventTypeId, "eventTypeId is a mandatory parameter"
         assert fromMonth && toMonth, "fromMonth and toMonth are mandatory parameters"
 
-        String query = """
-            SELECT
-                le.month,
-                le.logEventTypeId,
-                MIN(CASE WHEN le.logReasonTypeId = :excludeTestingId THEN true ELSE false END),
-                COUNT(DISTINCT le.userEmail),
-                COUNT(le.id)
-            FROM
-                LogEvent le
-            WHERE
-                le.logEventTypeId = :eventTypeId
-                AND (le.logReasonTypeId IS NULL OR le.logReasonTypeId != :excludeTestingId)
-                AND le.month >= :fromMonth
-                AND le.month <= :toMonth
-                AND EXISTS (
-                    SELECT 1 FROM LogDetail ld
-                    WHERE ld.logEvent.id = le.id
-                    AND ld.entityUid LIKE 'dr%'
-                )
-            GROUP BY
-                le.month, le.logEventTypeId
-            ORDER BY
-                le.month
-        """
+        def session = sessionFactory.currentSession
+        def connection = session.connection()
 
-        def mainResults = LogEvent.executeQuery(query, [
-            eventTypeId: eventTypeId,
-            excludeTestingId: excludeTestingReasonId,
-            fromMonth: fromMonth,
-            toMonth: toMonth
-        ])
+        // Call the stored procedure
+        String sql = "{CALL sp_GetLogEventSummaryByMonth(?, ?)}"
+        def results = []
 
-        // Get the record counts separately
-        def recordCounts = LogDetail.executeQuery("""
-            SELECT
-                le.month,
-                SUM(ld.recordCount)
-            FROM
-                LogDetail ld
-                JOIN ld.logEvent le
-            WHERE
-                le.logEventTypeId = :eventTypeId
-                AND (le.logReasonTypeId IS NULL OR le.logReasonTypeId != :excludeTestingId)
-                AND le.month >= :fromMonth
-                AND le.month <= :toMonth
-                AND ld.entityUid LIKE 'dr%'
-            GROUP BY
-                le.month
-            ORDER BY
-                le.month
-        """, [
-            eventTypeId: eventTypeId,
-            excludeTestingId: excludeTestingReasonId,
-            fromMonth: fromMonth,
-            toMonth: toMonth
-        ])
+        try {
+            def callableStatement = connection.prepareCall(sql)
+            callableStatement.setInt(1, fromMonth.toInteger())
+            callableStatement.setInt(2, toMonth.toInteger())
 
-        // Create a map of month to record count
-        def recordCountMap = recordCounts.collectEntries { [it[0], it[1]] }
+            def resultSet = callableStatement.executeQuery()
 
-        // Combine the results
-        mainResults.collect { row ->
-            def month = row[0]
-            [
-                month: month,
-                logEventTypeId: row[1],
-                isTesting: row[2],
-                numUsers: row[3] ?: 0,
-                numEvents: row[4],
-                numRecords: recordCountMap[month] ?: 0
-            ]
+            // Map the result set to a list of maps
+            while (resultSet.next()) {
+                results << [
+                    month: resultSet.getString("month"),
+                    logEventTypeId: resultSet.getInt("log_event_type_id"),
+                    isTesting: resultSet.getBoolean("istesting"),
+                    numUsers: resultSet.getInt("numusers"),
+                    numEvents: resultSet.getInt("numevents"),
+                    numRecords: resultSet.getLong("numrecs")
+                ]
+            }
+
+            resultSet.close()
+            callableStatement.close()
+        } catch (Exception e) {
+            log.error("Error calling stored procedure sp_GetLogEventSummaryByMonth", e)
+            throw e
         }
+
+        results
     }
 
     private getBreakdown(eventTypeId, entityUid, fromDate, toDate, categoryProperty, domainClass, noEntityDomainClass, Integer excludeReasonTypeId) {
