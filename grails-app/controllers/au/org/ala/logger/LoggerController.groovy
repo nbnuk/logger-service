@@ -33,7 +33,7 @@ class LoggerController {
     def loggerService
 
     def index = {
-        render(view: "/index-nbn")
+        render(view: "/index")
     }
 
     def notAuthorised = {}

@@ -44,12 +44,12 @@
                 // Convert from YYYY-MM to YYYYMM format
                 if (startDate) {
                     var formattedStart = startDate.replace('-', '');
-                    $('input[name="fromMonth"]').val(formattedStart);
+                    $('input[name="from"]').val(formattedStart);
                 }
 
                 if (endDate) {
                     var formattedEnd = endDate.replace('-', '');
-                    $('input[name="toMonth"]').val(formattedEnd);
+                    $('input[name="to"]').val(formattedEnd);
                 }
 
             });
@@ -59,7 +59,7 @@
 </head>
 <body>
 <div class="container">
-	<h1>NBN Logger web services</h1>
+	<h1>NBN Logger Service Administration</h1>
 </div>
 <div class="album py-5 bg-light">
     <div class="container">
@@ -67,28 +67,27 @@
         <div class="col-md-4">
           <div class="panel panel-primary mb-4 mt-10 mx-10 shadow-sm">
             <div class="panel-body p-4">
-            <p class="panel-text">Summarises user activity by month. It counts the number of unique users, total events, and total associated records for a specific event type within a the date range.</p>
-
+            <p class="panel-text"> This generates a downloadable CSV report summarizing log event counts grouped by month.</p>
 
               <div class="d-flex justify-content-between align-items-center"></div>
-                <form id="download-form" class="form-horizontal px-3" action="${request.contextPath}/service/downloadsByMonthCSV" method="GET">
+                <form id="download-form" class="form-horizontal p-3" action="${request.contextPath}/admin/downloads/monthly" method="GET">
 
 
-                    <div class="form-group">
-                        <div class="row">
-                            <div class="col-sm-6">
-                                <label for="startYearMonth" class="control-label">Start Year Month</label>
-                                <div class="input-group date mb-3 mx-3" id="startYearMonthPicker">
-                                    <input type="text" class="form-control" name="fromMonth" id="startYearMonth" placeholder="YYYY-MM" required >
+                    <div class="form-group mb-4">
+                        <div class="row" style="margin-left: 2px; margin-right: 2px;">
+                            <div class="col-sm-6 pr-3">
+                                <label for="startYearMonth" class="control-label mb-2">Start Year Month</label>
+                                <div class="input-group date mb-3" id="startYearMonthPicker">
+                                    <input type="text" class="form-control" name="from" id="startYearMonth" placeholder="YYYY-MM" required >
                                     <span class="input-group-addon">
                                         <span class="glyphicon glyphicon-calendar"></span>
                                     </span>
                                 </div>
                             </div>
-                            <div class="col-sm-6">
-                                <label for="endYearMonth" class="control-label">End Year Month</label>
-                                <div class="input-group date mb-3 mx-3" id="endYearMonthPicker">
-                                    <input type="text" class="form-control" name="toMonth" id="endYearMonth" placeholder="YYYY-MM" required >
+                            <div class="col-sm-6 pl-3">
+                                <label for="endYearMonth" class="control-label mb-2">End Year Month</label>
+                                <div class="input-group date mb-3" id="endYearMonthPicker">
+                                    <input type="text" class="form-control" name="to" id="endYearMonth" placeholder="YYYY-MM" required >
                                     <span class="input-group-addon">
                                         <span class="glyphicon glyphicon-calendar"></span>
                                     </span>
@@ -96,22 +95,13 @@
                             </div>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <div class="row">
-                            <div class="col-sm-6">
-                                <label for="eventId" class="control-label">Event Type ID</label>
-                                <input type="text" class="form-control mb-3 mx-3" name="eventId" id="eventTypeId" value="1002" required>
-                            </div>
-                            <div class="col-sm-6">
-                                <label for="excludeReasonTypeId" class="control-label">Exclude Reason Type ID</label>
-                                <input type="text" class="form-control mb-3 mx-3" name="excludeReasonTypeId" id="excludeReasonTypeId" value="10">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <div class="row">
-                            <div class="col-sm-12">
-                                <button type="submit" class="btn btn-primary btn-block mx-3">Download CSV</button>
+                    <!-- Hidden fields for eventId and excludeReasonTypeId -->
+                    <input type="hidden" name="eventId" id="eventTypeId" value="1002">
+                    <input type="hidden" name="excludeReasonTypeId" id="excludeReasonTypeId" value="10">
+                    <div class="form-group mt-4">
+                        <div class="row" style="margin-left: 2px; margin-right: 2px;">
+                            <div class="col-sm-12 text-center">
+                                <button type="submit" class="btn btn-primary" style="width: 200px;">Download CSV</button>
                             </div>
                         </div>
                     </div>

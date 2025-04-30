@@ -67,6 +67,7 @@ class UrlMappings {
         "/service/admin/userReport/download"(controller: "userReport", action:"download")
         "/service/admin/userReport/downloadDetailed"(controller: "userReport", action:"downloadDetailed")
 
+        "/admin/downloads/monthly"(controller: "nbnDownload", action: [GET: "getEventCountByMonth"])
 
         "/logout/$action?/$id?"(controller:'logout'){
             constraints {
