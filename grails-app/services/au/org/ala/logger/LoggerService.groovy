@@ -395,56 +395,6 @@ class LoggerService {
         result.collect { k -> new EventSummaryBreakdownReason(month: k[0], numberOfEvents: k[1], recordCount: k[2]) }
     }
 
-    /**
-     * Retrieve download statistics grouped by month using a stored procedure
-     *
-     * @param eventTypeId The event type to filter on (default 1002 for downloads), not currently used by the stored procedure
-     * @param fromMonth The starting month in format yyyyMM (inclusive)
-     * @param toMonth The ending month in format yyyyMM (inclusive)
-     * @param excludeTestingReasonId The reason type ID to consider as "testing" (default 10), not currently used by the stored procedure
-     * @return List of maps with summary data [month, logEventTypeId, isTesting, numUsers, numEvents, numRecords]
-     */
-    def getDownloadsByMonth(Integer eventTypeId = 1002, String fromMonth, String toMonth, Integer excludeTestingReasonId = 10) {
-        log.debug("Getting downloads by month with eventTypeId=${eventTypeId}, fromMonth=${fromMonth}, toMonth=${toMonth}, excludeTestingReasonId=${excludeTestingReasonId}")
-
-        assert fromMonth && toMonth, "fromMonth and toMonth are mandatory parameters"
-
-        def session = sessionFactory.currentSession
-        def connection = session.connection()
-
-        // Call the stored procedure
-        String sql = "{CALL sp_GetLogEventSummaryByMonth(?, ?)}"
-        def results = []
-
-        try {
-            def callableStatement = connection.prepareCall(sql)
-            callableStatement.setInt(1, fromMonth.toInteger())
-            callableStatement.setInt(2, toMonth.toInteger())
-
-            def resultSet = callableStatement.executeQuery()
-
-            // Map the result set to a list of maps
-            while (resultSet.next()) {
-                results << [
-                    month: resultSet.getString("month"),
-                    logEventTypeId: resultSet.getInt("log_event_type_id"),
-                    isTesting: resultSet.getBoolean("istesting"),
-                    numUsers: resultSet.getInt("numusers"),
-                    numEvents: resultSet.getInt("numevents"),
-                    numRecords: resultSet.getLong("numrecs")
-                ]
-            }
-
-            resultSet.close()
-            callableStatement.close()
-        } catch (Exception e) {
-            log.error("Error calling stored procedure sp_GetLogEventSummaryByMonth", e)
-            throw e
-        }
-
-        results
-    }
-
     private getBreakdown(eventTypeId, entityUid, fromDate, toDate, categoryProperty, domainClass, noEntityDomainClass, Integer excludeReasonTypeId) {
         assert fromDate && toDate || !fromDate && !toDate, "Must supply both a dateFrom and dateTo string or neither"
 

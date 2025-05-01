@@ -65,19 +65,19 @@
     <div class="container">
       <div class="row">
         <div class="col-md-4">
-          <div class="panel panel-primary mb-4 mt-10 mx-10 shadow-sm">
-            <div class="panel-body p-4">
+          <div class="panel panel-primary shadow-sm">
+            <div class="panel-body">
             <p class="panel-text"> This generates a downloadable CSV report summarizing log event counts grouped by month.</p>
 
               <div class="d-flex justify-content-between align-items-center"></div>
-                <form id="download-form" class="form-horizontal p-3" action="${request.contextPath}/admin/downloads/monthly" method="GET">
+                <form id="download-form" class="form-horizontal" action="${request.contextPath}/admin/downloads/monthly" method="GET">
 
 
-                    <div class="form-group mb-4">
+                    <div class="form-group">
                         <div class="row" style="margin-left: 2px; margin-right: 2px;">
                             <div class="col-sm-6 pr-3">
-                                <label for="startYearMonth" class="control-label mb-2">Start Year Month</label>
-                                <div class="input-group date mb-3" id="startYearMonthPicker">
+                                <label for="startYearMonth" class="control-label">Start Year Month</label>
+                                <div class="input-group date" id="startYearMonthPicker">
                                     <input type="text" class="form-control" name="from" id="startYearMonth" placeholder="YYYY-MM" required >
                                     <span class="input-group-addon">
                                         <span class="glyphicon glyphicon-calendar"></span>
@@ -85,8 +85,8 @@
                                 </div>
                             </div>
                             <div class="col-sm-6 pl-3">
-                                <label for="endYearMonth" class="control-label mb-2">End Year Month</label>
-                                <div class="input-group date mb-3" id="endYearMonthPicker">
+                                <label for="endYearMonth" class="control-label">End Year Month</label>
+                                <div class="input-group date" id="endYearMonthPicker">
                                     <input type="text" class="form-control" name="to" id="endYearMonth" placeholder="YYYY-MM" required >
                                     <span class="input-group-addon">
                                         <span class="glyphicon glyphicon-calendar"></span>
