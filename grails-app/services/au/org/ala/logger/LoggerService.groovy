@@ -521,7 +521,7 @@ class LoggerService {
                 eq("logReasonTypeId", reasonTypeId)
             }
             if (excludeReasonTypeId) {
-                ne("logReasonTypeId", excludeReasonTypeId)
+                ne("logReasonTypeId", excludeReasonTypeId as int)
             }
             projections {
                 groupProperty("month")
