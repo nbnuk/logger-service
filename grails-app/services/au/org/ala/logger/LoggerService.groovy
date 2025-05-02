@@ -518,7 +518,7 @@ class LoggerService {
                 le("month", toDate)
             }
             if (reasonTypeId) {
-                eq("logReasonTypeId", reasonTypeId)
+                eq("logReasonTypeId", reasonTypeId as int   )
             }
             if (excludeReasonTypeId) {
                 ne("logReasonTypeId", excludeReasonTypeId as int)
