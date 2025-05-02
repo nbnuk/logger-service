@@ -37,22 +37,14 @@ class NbnDownloadController {
             handleError(HttpStatus.BAD_REQUEST, "Request is missing eventId")
         } else {
             def results
-
-            // Convert string parameters to appropriate types
-            Integer eventId = params.int('eventId')
-            Integer reasonTypeId = params.int('reasonTypeId')
-            Integer excludeReasonTypeId = params.int('excludeReasonTypeId')
-            String entityUid = params.entityUid
-            String fromDate = params.from
-            String toDate = params.to
-
+            
             results = loggerService.getTemporalEventsWithDateRange(
-                eventId,
-                entityUid,
-                reasonTypeId,
-                excludeReasonTypeId,
-                fromDate,
-                toDate
+                params.int('eventId'),
+                params.entityUid,
+                params.reasonTypeId ? params.int('reasonTypeId') : null,
+                params.excludeReasonTypeId ? params.int('excludeReasonTypeId') : null,
+                params.from,
+                params.to
             )
 
             response.contentType = "text/csv"
