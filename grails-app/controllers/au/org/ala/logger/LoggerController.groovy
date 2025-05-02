@@ -947,5 +947,4 @@ class LoggerController {
         outDate
     }
 
-
 }
