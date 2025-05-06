@@ -68,6 +68,10 @@ class UrlMappings {
 
         "/admin/downloads/monthly"(controller: "nbnDownload", action: [GET: "getEventCountByMonth"])
 
+        // Data export endpoints
+        "/admin/nbn/download/events"(controller: "nbnDownload", action: [GET: "getEventCountByMonth"])
+        "/admin/nbn/download/reasons"(controller: "nbnDownload", action: [GET: "getReasonCategoryBreakdown"])
+
         "/logout/$action?/$id?"(controller:'logout'){
             constraints {
                 // apply constraints here

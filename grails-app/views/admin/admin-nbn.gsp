@@ -13,109 +13,158 @@
 
     <script type="text/javascript">
         $(document).ready(function() {
-            $('#startYearMonthPicker').datepicker({
+            // Initialize datepickers
+            $('.datepicker').datepicker({
                 format: "yyyy-mm",
                 viewMode: "months",
                 minViewMode: "months",
                 autoclose: true
             });
 
-            $('#endYearMonthPicker').datepicker({
-                format: "yyyy-mm",
-                viewMode: "months",
-                minViewMode: "months",
-                autoclose: true
-            });
-
-            // Set default values last year/month
+            // Set default values: last year to current month
             var today = new Date();
             var currentMonthYear = (today.getFullYear() - 1) + '-' + (today.getMonth() + 1).toString().padStart(2, '0');
             var nextMonthYear = today.getFullYear() + '-' + ((today.getMonth() + 2) % 12 || 12).toString().padStart(2, '0');
 
-            $('#startYearMonth').val(currentMonthYear);
-            $('#endYearMonth').val(nextMonthYear);
+            // Set default date range values
+            $('.start-month').val(currentMonthYear);
+            $('.end-month').val(nextMonthYear);
 
-            // Add form submission handler to format dates correctly
-            $('#download-form').submit(function(e) {
+            // Format date values before form submission
+            $('.download-form').submit(function(e) {
                 // Get the date values
-                var startDate = $('#startYearMonth').val();
-                var endDate = $('#endYearMonth').val();
+                var startDate = $(this).find('.start-month').val();
+                var endDate = $(this).find('.end-month').val();
 
                 // Convert from YYYY-MM to YYYYMM format
                 if (startDate) {
                     var formattedStart = startDate.replace('-', '');
-                    $('input[name="from"]').val(formattedStart);
+                    $(this).find('input[name="from"]').val(formattedStart);
                 }
 
                 if (endDate) {
                     var formattedEnd = endDate.replace('-', '');
-                    $('input[name="to"]').val(formattedEnd);
+                    $(this).find('input[name="to"]').val(formattedEnd);
                 }
 
+                // Continue with form submission
+                return true;
             });
         });
     </script>
-
 </head>
 <body>
 <div class="container">
 	<h1>NBN Logger Service Administration</h1>
+	<div class="row">
+		<div class="col-md-12">
+			<div class="panel panel-default">
+				<div class="panel-heading">
+					<h3 class="panel-title">Download Logger Data</h3>
+				</div>
+				<div class="panel-body">
+					<div class="row">
+						<!-- Monthly Events Download Form -->
+						<div class="col-md-6">
+							<div class="well">
+								<h4 class="text-primary">Monthly Download Statistics</h4>
+								<p class="text-muted">Download a report of all downloads broken down by month. Shows total download events and record counts for each month in the selected period. Testing downloads are excluded by default.</p>
+								<form class="download-form" action="${request.contextPath}/admin/nbn/download/events" method="GET">
+									<div class="form-group">
+										<label>Start Month</label>
+										<div class="input-group date">
+											<input type="text" class="form-control input-sm start-month datepicker" placeholder="YYYY-MM" required>
+											<input type="hidden" name="from">
+											<span class="input-group-addon">
+												<span class="glyphicon glyphicon-calendar"></span>
+											</span>
+										</div>
+									</div>
+									<div class="form-group">
+										<label>End Month</label>
+										<div class="input-group date">
+											<input type="text" class="form-control input-sm end-month datepicker" placeholder="YYYY-MM" required>
+											<input type="hidden" name="to">
+											<span class="input-group-addon">
+												<span class="glyphicon glyphicon-calendar"></span>
+											</span>
+										</div>
+									</div>
+									<div class="form-group">
+										<div class="row">
+											<div class="col-xs-6">
+												<label>Format</label>
+												<select name="format" class="form-control input-sm">
+													<option value="csv" selected>CSV</option>
+													<option value="json">JSON</option>
+												</select>
+											</div>
+											<div class="col-xs-6">
+												<label>&nbsp;</label>
+												<button type="submit" class="btn btn-primary btn-sm btn-block">
+													Download <i class="glyphicon glyphicon-download"></i>
+												</button>
+											</div>
+										</div>
+									</div>
+									<input type="hidden" name="eventId" value="1002">
+									<input type="hidden" name="excludeReasonTypeId" value="10">
+								</form>
+							</div>
+						</div>
+
+						<!-- Reason Category Download Form -->
+						<div class="col-md-6">
+							<div class="well">
+								<h4 class="text-primary">Downloads by Reason</h4>
+								<p class="text-muted">Download a report of all downloads broken down by reason category and month. Shows what reasons users selected when downloading data during the selected period.</p>
+								<form class="download-form" action="${request.contextPath}/admin/nbn/download/reasons" method="GET">
+									<div class="form-group">
+										<label>Start Month</label>
+										<div class="input-group date">
+											<input type="text" class="form-control input-sm start-month datepicker" placeholder="YYYY-MM" required>
+											<input type="hidden" name="from">
+											<span class="input-group-addon">
+												<span class="glyphicon glyphicon-calendar"></span>
+											</span>
+										</div>
+									</div>
+									<div class="form-group">
+										<label>End Month</label>
+										<div class="input-group date">
+											<input type="text" class="form-control input-sm end-month datepicker" placeholder="YYYY-MM" required>
+											<input type="hidden" name="to">
+											<span class="input-group-addon">
+												<span class="glyphicon glyphicon-calendar"></span>
+											</span>
+										</div>
+									</div>
+									<div class="form-group">
+										<div class="row">
+											<div class="col-xs-6">
+												<label>Format</label>
+												<select name="format" class="form-control input-sm">
+													<option value="csv" selected>CSV</option>
+													<option value="json">JSON</option>
+												</select>
+											</div>
+											<div class="col-xs-6">
+												<label>&nbsp;</label>
+												<button type="submit" class="btn btn-primary btn-sm btn-block">
+													Download <i class="glyphicon glyphicon-download"></i>
+												</button>
+											</div>
+										</div>
+									</div>
+									<input type="hidden" name="eventId" value="1002">
+								</form>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
 </div>
-<div class="album py-5 bg-light">
-    <div class="container">
-      <div class="row">
-        <div class="col-md-4">
-          <div class="panel panel-primary shadow-sm">
-            <div class="panel-body">
-            <p class="panel-text"> This generates a downloadable CSV report summarizing log event counts grouped by month.</p>
-
-              <div class="d-flex justify-content-between align-items-center"></div>
-                <form id="download-form" class="form-horizontal" action="${request.contextPath}/admin/downloads/monthly" method="GET">
-
-
-                    <div class="form-group">
-                        <div class="row" style="margin-left: 2px; margin-right: 2px;">
-                            <div class="col-sm-6 pr-3">
-                                <label for="startYearMonth" class="control-label">Start Year Month</label>
-                                <div class="input-group date" id="startYearMonthPicker">
-                                    <input type="text" class="form-control" name="from" id="startYearMonth" placeholder="YYYY-MM" required >
-                                    <span class="input-group-addon">
-                                        <span class="glyphicon glyphicon-calendar"></span>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="col-sm-6 pl-3">
-                                <label for="endYearMonth" class="control-label">End Year Month</label>
-                                <div class="input-group date" id="endYearMonthPicker">
-                                    <input type="text" class="form-control" name="to" id="endYearMonth" placeholder="YYYY-MM" required >
-                                    <span class="input-group-addon">
-                                        <span class="glyphicon glyphicon-calendar"></span>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Hidden fields for eventId and excludeReasonTypeId -->
-                    <input type="hidden" name="eventId" id="eventTypeId" value="1002">
-                    <input type="hidden" name="excludeReasonTypeId" id="excludeReasonTypeId" value="10">
-                    <div class="form-group mt-4">
-                        <div class="row" style="margin-left: 2px; margin-right: 2px;">
-                            <div class="col-sm-12 text-center">
-                                <button type="submit" class="btn btn-primary" style="width: 200px;">Download CSV</button>
-                            </div>
-                        </div>
-                    </div>
-                </form>
-            </div>
-
-          </div>
-        </div>
-
-
-
-        </div>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
