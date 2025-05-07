@@ -123,32 +123,13 @@ class NbnDownloadController {
 
         String format = params.format?.toLowerCase() ?: 'csv'
 
-        def results = []
-        def criteria = EventSummaryBreakdownReason.createCriteria()
-
+        List results
         try {
-            // Updated query to include month in the group by
-            results = criteria.list {
-                eq("logEventTypeId", params.int('eventId'))
-
-                if (params.from) {
-                    ge("month", params.from)
-                }
-
-                if (params.to) {
-                    le("month", params.to)
-                }
-
-                projections {
-                    groupProperty("month")
-                    groupProperty("logReasonTypeId")
-                    sum("numberOfEvents", "totalEvents")
-                    sum("recordCount", "totalRecords")
-                }
-
-                order("month", "asc")
-                order("logReasonTypeId", "asc")
-            }
+            results = loggerService.getReasonBreakdownByMonthAndCategory(
+                params.int('eventId'),
+                params.from,
+                params.to
+            )
         } catch (Exception e) {
             handleError(HttpStatus.INTERNAL_SERVER_ERROR, "Error fetching reason breakdown data", e)
             return
