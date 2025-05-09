@@ -492,6 +492,74 @@ class LoggerService {
         results
     }
 
+    /**
+     * Retrieve a temporal breakdown of log events with date range filter
+     *
+     * @param eventTypeId The event type to search for. Mandatory.
+     * @param entityUid The entity to search for. Optional. If not provided, entities starting with 'dr' will be included.
+     * @param reasonTypeId The reason type to search for. Optional. If not provided, all reason types will be included.
+     * @param excludeReasonTypeId The reason type to exclude (usually testing). Optional.
+     * @param fromDate The first year/month (yyyyMM) in the range to search for. Inclusive. Optional.
+     * @param toDate The last year/month (yyyyMM) in the range to search for. Inclusive. Optional.
+     * @return List of EventSummaryBreakdownReasonEntity objects with month, numberOfEvents, and recordCount populated
+     */
+    def getTemporalEventsWithDateRange(eventTypeId, entityUid, reasonTypeId, excludeReasonTypeId, fromDate, toDate) {
+        assert eventTypeId, "eventTypeId is a mandatory parameter"
+
+        EventSummaryBreakdownReasonEntity.withCriteria {
+            eq("logEventTypeId", eventTypeId as int)
+            if (entityUid) {
+                eq("entityUid", entityUid)
+            } else {
+                ilike("entityUid", "dr%")
+            }
+            if (fromDate && toDate) {
+                ge("month", fromDate)
+                le("month", toDate)
+            }
+            if (reasonTypeId) {
+                eq("logReasonTypeId", reasonTypeId as int   )
+            }
+            if (excludeReasonTypeId) {
+                ne("logReasonTypeId", excludeReasonTypeId as int)
+            }
+            projections {
+                groupProperty("month")
+                sum("numberOfEvents")
+                sum("recordCount")
+            }
+        }.collect { k -> new EventSummaryBreakdownReasonEntity(month: k[0], numberOfEvents: k[1], recordCount: k[2]) }
+    }
+
+    /**
+     * Retrieve a breakdown of log events grouped by month and reason type
+     *
+     * @param eventTypeId The event type to search for. Mandatory.
+     * @param fromDate The first year/month (yyyyMM) in the range to search for. Inclusive. Optional.
+     * @param toDate The last year/month (yyyyMM) in the range to search for. Inclusive. Optional.
+     * @return List of [month, logReasonTypeId, numberOfEvents, recordCount]
+     */
+    def getReasonBreakdownByMonthAndCategory(Integer eventTypeId, String fromDate, String toDate) {
+        assert eventTypeId, "eventTypeId is a mandatory parameter"
+
+        EventSummaryBreakdownReason.withCriteria {
+            eq("logEventTypeId", eventTypeId)
+            if (fromDate) {
+                ge("month", fromDate)
+            }
+            if (toDate) {
+                le("month", toDate)
+            }
+            projections {
+                groupProperty("month")
+                groupProperty("logReasonTypeId")
+                sum("numberOfEvents", "totalEvents")
+                sum("recordCount", "totalRecords")
+            }
+            order("month", "asc")
+            order("logReasonTypeId", "asc")
+        }
+    }
 
     private getValidType(id, finder) {
         def value = null

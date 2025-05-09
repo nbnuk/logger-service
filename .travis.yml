@@ -8,6 +8,7 @@ branches:
   - develop
   - grails4
   - feature/oidcIntegration
+  - master-nbn-4.1.0
 before_install:
 - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
 - rm -fr $HOME/.gradle/caches/*/plugin-resolution/
