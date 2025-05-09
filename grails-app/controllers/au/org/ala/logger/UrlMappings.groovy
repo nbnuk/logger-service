@@ -65,7 +65,8 @@ class UrlMappings {
         "/admin/userReport/downloadDetailed"(controller: "userReport", action:"downloadDetailed")
         "/service/admin/userReport/download"(controller: "userReport", action:"download")
         "/service/admin/userReport/downloadDetailed"(controller: "userReport", action:"downloadDetailed")
-
+        "/admin/nbn/download/events"(controller: "nbnDownload", action: [GET: "getEventCountByMonth"])
+        "/admin/nbn/download/reasons"(controller: "nbnDownload", action: [GET: "getReasonCategoryBreakdown"])
 
         "/logout/$action?/$id?"(controller:'logout'){
             constraints {
