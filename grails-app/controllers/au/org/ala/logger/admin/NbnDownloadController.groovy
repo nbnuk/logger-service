@@ -92,7 +92,7 @@ class NbnDownloadController {
         }
     }
 
-    /**
+      /**
      * Generate data containing reason category breakdown
      *
      * <p/>
@@ -115,72 +115,64 @@ class NbnDownloadController {
         String format = params.format?.toLowerCase() ?: 'csv'
 
         List results
-        Map<Integer, String> reasonMap
-
         try {
             results = loggerService.getReasonBreakdownByMonthAndCategory(
-                    params.int('eventId'),
-                    params.from,
-                    params.to
+                params.int('eventId'),
+                params.from,
+                params.to
             )
-
-            // Get a map of reason IDs to names
-            def reasonTypes = loggerService.getAllReasonTypes()
-            reasonMap = reasonTypes ? reasonTypes.collectEntries {
-                [it.id as Integer, it.name]
-            } : [:]
-
         } catch (Exception e) {
             handleError(HttpStatus.INTERNAL_SERVER_ERROR, "Error fetching reason breakdown data", e)
             return
         }
 
+        // Get a map of reason IDs to names
+        Map<Integer, String> reasonMap = loggerService.getAllReasonTypes().collectEntries {
+            [it.id as Integer, it.name]
+        }
+
+        // Transform results to include year and month
+        def downloadData = results.collect { row ->
+            def monthStr = row[0] as String
+            def year = monthStr.substring(0, 4)
+            def month = monthStr.substring(4, 6)
+
+            [
+                yearMonth: monthStr,
+                year: year,
+                month: month,
+                reasonId: row[1],
+                reason: reasonMap[row[1]] ?: "unknown",
+                events: row[2],
+                records: row[3]
+            ]
+        }
+
+        // Handle response format
         if (format == 'json') {
-            def transformedResults = results.collect { row ->
-                def yearMonth = row[0]
-                def reasonId = row[1] as Integer
-                def events = row[2]
-                def records = row[3]
-                def year = yearMonth.substring(0, 4)
-                def month = yearMonth.substring(4, 6)
-
-                [
-                    yearMonth: yearMonth,
-                    year: year,
-                    month: month,
-                    reasonId: reasonId,
-                    reason: reasonMap[reasonId] ?: "Unknown",
-                    events: events,
-                    records: records
-                ]
-            }
-
-            render contentType: "application/json", text: new groovy.json.JsonBuilder(transformedResults).toString()
+            render downloadData as JSON
         } else {
-            // CSV format
+            // CSV format with year and month columns
             response.contentType = "text/csv"
-            response.setHeader("Content-Disposition", "attachment; filename=\"reason-breakdown-${params.from ?: ''}-${params.to ?: ''}.csv\"")
+            response.addHeader("Content-Disposition", "attachment; filename=\"reason-breakdown-${params.from}-${params.to}.csv\"")
 
-            if (results) {
-                def writer = response.writer
-                def csv = new CSVWriter(writer, {
-                    col1: "year_month" { it[0] }
-                    col2: "year" { it[0].substring(0, 4) }
-                    col3: "month" { it[0].substring(4, 6) }
-                    col4: "reason_id" { it[1] }
-                    col5: "reason" { reasonMap[it[1] as Integer] ?: "Unknown" }
-                    col6: "events" { it[2] }
-                    col7: "records" { it[3] }
+            if (downloadData) {
+                def csv = new CSVWriter(response.writer, {
+                    col1: "year_month" { it.yearMonth }
+                    col2: "year" { it.year }
+                    col3: "month" { it.month }
+                    col4: "reason_id" { it.reasonId }
+                    col5: "reason" { it.reason }
+                    col6: "events" { it.events }
+                    col7: "records" { it.records }
                 })
 
-                results.each { row -> csv << row }
-                writer.flush()
+                downloadData.each { e -> csv << e }
             } else {
-                // If no results, just write headers
-                def writer = response.writer
-                writer.write("\"year_month\",\"year\",\"month\",\"reason_id\",\"reason\",\"events\",\"records\"")
-                writer.flush()
+                response.writer.write("\"year_month\",\"year\",\"month\",\"reason_id\",\"reason\",\"events\",\"records\"")
             }
+
+            response.writer.flush()
         }
     }
 
