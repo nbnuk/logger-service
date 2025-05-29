@@ -4,11 +4,9 @@ jdk:
 sudo: false
 branches:
   only:
-  - master
-  - develop
-  - grails4
-  - feature/oidcIntegration
   - master-nbn-4.1.0
+  - develop
+  - get-travis-working2
 before_install:
 - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
 - rm -fr $HOME/.gradle/caches/*/plugin-resolution/
@@ -22,5 +20,5 @@ after_success:
 env:
   global:
     - JAVA_TOOL_OPTIONS=-Dhttps.protocols=TLSv1.2
-    - secure: dEUGIV/VsORNT9kwqW3I7MOcA73cCQ6rD7QSJZCLcWSjZgiOxzuj0VWXw8d1hr8pO8Vq0ZEmy1FKvUQvLK40Xmx4OEIahcxRSe+mNH7UkaGYQsU2cjBt3TjFenVvhJbeAXPRWk21PlAoVtCyoROOV1o9h+ju+iWyb3IQpVil+Hw=
-    - secure: TVqWHrvy/myQ16dnZT78eryZqbkmStOPMlxUNt8i4a/oa5EbbAssWsDT8NQODG+yY2HAhlPpS5BX9qhndSZ8MHAbDK1a7wvBKaBqxnCXiCQpXq9rZT9k5SB3BXUX/UrxKX7G6clWveQVBqqSdixA6H1dusksEObv76G5bgbT6tk=
+    - secure: JcU9hmobzetwAEX5Fhy2gtlbEFoQ3RLPBMIDHePvg5fAOOcYXVhZfmT/cPWTYXIOQzJyVTBIwUPYtKYXnWT1aATC0F7B2Svc3r4IOR8wGUU4BzSrm9j19bBNCsRY9iOxs7xdMDMK5FHuPZZi5rkIJeBT2On0N5FxSVtjw/8oBEkS0BbzFHLZ5VsFRSJKo5okYbwC9Q8QurI9OXAUP13NPdQmSWT0VYT+uwtK5wiGaz1e/dq6f5kMRQvaxGfDaWMZNsPUS+//zcyzpOsrAErJjW0wXq4LkA7Ngw7jBuiD+vdnZl8pfH1kVrFc77+SSdLFmCmVYiNwYyQivmuba8yHz6lhjMxFw4pDzlOZhN6b5fLGy2UXvzdaoxh0iDivrQsxMRWnmSHun/hpL1Fz2axc/lXNu6Fm+rhbu+xHEZhjO830ClD7WbmzV0/Jda7S4jPFG24ZqzSVVtTugBu/mg2XUVBL/ZrGtl31X38MUErmrruO3v61p26yrvjX5mCp9ZR4t8pgilyBYILrghVeaBZZkd9/Jb0xueHLtM6edFkIsqSYPxbxBOEtgkMkdDqCcu8dsShgEHCr2PLY0jr7z4FpqRokXzhr8wKo1eR7F/qhvGVzJFxqJSTBvLCwPHtypp0zfV9ioJ4s8IS7MvxkNVNbRzp211NniXx375wlZtNwo68=
+    - secure: FOrmycBe6+pFEiwEuURLghs6ic3h+pBFttfLRo+vrNsNmhEKBe35FIOQpbQlsMh16Y05HQICwRyOnnOe+aQ4yVn+qFkMGWSfmlucxZXaPPPdTtxywO30qSvbsjItEc62IQuumxbg11AiJ8RNFZNZkaWWN0oaFUpD0hxFieHtjM7byIw5DE8+sHFJ0l9YhFVMS/y0nTWzt2Dty86SjGIzjSrcu5QMD3u5hCVMK8hXQCRfoPtwxcsaQVg2WHNCycmh22FWKhJuTtR6DWMQMcQ4ZGzei1V2Q3g88xahVtETPBrBsSlvronIa/ChWNJXz3hYxZEi+YRiaFZYbM8+U9e9YyTW4G0zS7KUhgo456t8+xduU+0x92Bb/G+zGkoboSHGn8+5xwSiq+edRIGS+42ZnipvjaOdBM5NuwNyffmRLJxJPO1q9KdOBGE9QhW1ddhlvLBuebAzEKJWpFsSQO7g7X5j6X9xxLKRHt2ffRDxGVeF2q/BejtGGw7puUIrYFmGW6kCxVnCkpO4U7mfbKKLfeB5pEeS72yI/SHm0HE8FK12lABG9EeGN8czJtTuBzkqOkJjluucjr3yz1O88XCvdH3sgf7iwtzDHA3pRfHFQNrR8w2XG92JoJSdovT49fhCNwfzvx3W4mriAFcqnW8Tqjc3wJ9iNtS9b4uaeVVrAnI=
